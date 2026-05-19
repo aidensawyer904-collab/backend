@@ -1,10 +1,6 @@
 {
   "version": 2,
   "public": true,
-  "builds": [
-    { "src": "api/**/*.js", "use": "@vercel/node" },
-    { "src": "public/**",   "use": "@vercel/static" }
-  ],
   "routes": [
     {
       "src": "/api/(.*)",
@@ -18,17 +14,12 @@
       "status": 204
     },
     {
-      "src": "/api/:path*",
-      "dest": "/api/:path*.js",
-      "headers": {
-        "Access-Control-Allow-Origin": "https://verveutils.web.app",
-        "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type"
-      }
+      "src": "/api/tickets/([^/]+)",
+      "dest": "/api/tickets/[id].js"
     },
     {
-      "src": "/(.*)",
-      "dest": "/index.html"
+      "src": "/api/tickets",
+      "dest": "/api/tickets/index.js"
     }
   ]
 }
