@@ -2,27 +2,33 @@
   "version": 2,
   "public": true,
   "builds": [
+    { "src": "api/**/*.js", "use": "@vercel/node" },
+    { "src": "public/**",   "use": "@vercel/static" }
+  ],
+  "routes": [
     {
-      "src": "api/**/*.js",
-      "use": "@vercel/node"
+      "src": "/api/(.*)",
+      "methods": ["OPTIONS"],
+      "headers": {
+        "Access-Control-Allow-Origin": "https://verveutils.web.app",
+        "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type"
+      },
+      "continue": false,
+      "status": 204
     },
     {
-      "src": "public/**",
-      "use": "@vercel/static"
-    }
-  ],
-  "headers": [
+      "src": "/api/:path*",
+      "dest": "/api/:path*.js",
+      "headers": {
+        "Access-Control-Allow-Origin": "https://verveutils.web.app",
+        "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type"
+      }
+    },
     {
-      "source": "/api/(.*)",
-      "headers": [
-        { "key": "Access-Control-Allow-Origin",  "value": "https://verveutils.web.app" },
-        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, PATCH, OPTIONS" },
-        { "key": "Access-Control-Allow-Headers", "value": "Content-Type" }
-      ]
+      "src": "/(.*)",
+      "dest": "/index.html"
     }
-  ],
-  "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/:path*.js" },
-    { "source": "/(.*)",       "destination": "/index.html" }
   ]
 }
