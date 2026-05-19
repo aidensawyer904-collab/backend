@@ -23,9 +23,9 @@ async function list() {
   const r = await globalThis.fetch(BASE + '?meta=false', { headers: headers() });
   const d = await r.json();
   if (!r.ok) throw new Error(d.message || 'jsonbin GET failed: ' + r.status);
-  // A fresh bin returns {} — treat as empty array
-  if (Array.isArray(d.record)) return d.record;
-  if (d.record && Array.isArray(d.record.record)) return d.record.record;
+  // meta=false returns the raw array; a fresh bin returns {}
+  if (d.record && Array.isArray(d.record)) return d.record;
+  if (Array.isArray(d)) return d;
   return [];
 }
 
