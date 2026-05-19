@@ -14,8 +14,8 @@
       "status": 204
     },
     {
-      "src": "/api/tickets/([^/]+)",
-      "dest": "/api/tickets/[id].js"
+      "src": "/api/tickets/(?<id>[^/]+)",
+      "dest": "/api/tickets/[id].js?id=$id"
     },
     {
       "src": "/api/tickets",
