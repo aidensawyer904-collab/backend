@@ -1,6 +1,7 @@
 'use strict';
 // api/tickets/index.js   CommonJS
 const db = require('../_lib/db.js');
+const { migrate } = require('../_lib/db.js');
 
 module.exports = async function handler(req, res) {
   res.setHeader('Content-Type', 'application/json');
@@ -19,7 +20,9 @@ module.exports = async function handler(req, res) {
   //   search    = free text (id, email, subject, description)
   if (req.method === 'GET') {
     try {
-      const all = await db.list();
+      let all = await db.list();
+      const { tickets: migrated, migrated: dirty } = migrate(all);
+      if (dirty) { all = migrated; await db.save(migrated); }
       const { status, humanOnly, search } = req.query;
       let result = all;
 
@@ -37,7 +40,7 @@ module.exports = async function handler(req, res) {
         );
       }
 
-      result.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      result.sort((a, b) => ((b.timestamp || 0) | 0) - ((a.timestamp || 0) | 0));
 
       return res.status(200).json(result);
     } catch (err) {
@@ -54,7 +57,12 @@ module.exports = async function handler(req, res) {
       const body = req.body || {};
       const { id, email, subject, description, humanRequested, initialMessage, conversation, timestamp } = body;
 
-      if (!id || !email || !subject || !description) {
+      if (id === null || id === undefined || id === '') {
+        return res.status(400).json({
+          error: 'id, email, subject, and description are required.',
+        });
+      }
+      if (!email || !subject || !description) {
         return res.status(400).json({
           error: 'id, email, subject, and description are required.',
         });
@@ -72,7 +80,11 @@ module.exports = async function handler(req, res) {
         timestamp:        now,
         humanRequested:   human,
         initialMessage:   initialMessage || description,
-        conversation:     conversation   || ('You: ' + description),
+        // Conversation is an array of { from, content, timestamp }
+        // so the full chat history is always stored and reloadable.
+        conversation:     Array.isArray(conversation)
+          ? conversation
+          : [{ from: 'user', content: String(description), timestamp: now }],
         closed:           false,
         closedAt:         null,
         closedBy:         null,
@@ -80,10 +92,13 @@ module.exports = async function handler(req, res) {
         repliedAt:        null,
         repliedBy:        null,
         humanRequestedAt: human ? now : null,
+        messages:         Array.isArray(body.messages) ? body.messages : [],
         responses:        [],
       };
 
-      const all = await db.list();
+      let all = await db.list();
+      const { tickets: normalized, migrated: dirty } = migrate(all);
+      if (dirty) all = normalized;
 
       // Reject duplicate IDs
       if (all.some(t => String(t.id).toLowerCase() === String(id).toLowerCase())) {
