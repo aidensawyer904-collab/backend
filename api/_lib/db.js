@@ -23,7 +23,7 @@ async function list() {
   const r = await globalThis.fetch(BASE + '?meta=false', { headers: headers() });
   const d = await r.json();
   if (!r.ok) throw new Error(d.message || 'jsonbin GET failed: ' + r.status);
-  // meta=false returns the raw array; a fresh bin returns {}
+  // meta=false returns a raw array; {record:[…]} from meta=true
   if (d.record && Array.isArray(d.record)) return d.record;
   if (Array.isArray(d)) return d;
   return [];
@@ -47,5 +47,51 @@ async function save(records) {
 
 /** Alias — some route files use update() */
 async function update(records) { return save(records); }
+
+/**
+ * Migrate all tickets in the bin to the latest schema.
+ * - conversation: flat string  →  [{ from, content, timestamp }]
+ * - messages:    missing field → derived from conversation
+ * - responses:   missing field → []
+ * Run once on every read so old tickets are auto-healed.
+ */
+function migrate(tickets) {
+  let changed = false;
+  const out = tickets.map(t => {
+    // conversation: flat string → structured array (auto-heal legacy tickets)
+    if (typeof t.conversation === 'string') {
+      const lines = t.conversation.split('\n').filter(Boolean);
+      const arr = lines.map((line, i) => {
+        const m = line.match(/^(\w+):\s*(.*)/);
+        if (m) return { from: m[1].toLowerCase(), content: m[2], timestamp: (t.timestamp || 0) + i * 1000 };
+        return { from: 'user', content: line, timestamp: (t.timestamp || 0) + i * 1000 };
+      });
+      return { ...t, conversation: arr, messages: arr };
+    }
+    // messages: initialise from conversation if missing (older tickets)
+    if (!Array.isArray(t.messages) && Array.isArray(t.conversation)) {
+      return { ...t, messages: [...t.conversation] };
+    }
+    // responses: initialise to [] if null/undefined
+    if (!Array.isArray(t.responses)) {
+      return { ...t, responses: [] };
+    }
+    changed |= false;
+    return t;
+  });
+
+  // Track whether any ticket was actually migrated
+  const reallyChanged = tickets.some((t, i) => {
+    const o = out[i];
+    return (typeof t.conversation === 'string') ||
+           !(Array.isArray(t.messages)) ||
+           !(Array.isArray(t.responses));
+  });
+
+  if (!reallyChanged) return { tickets: out, migrated: false };
+  return { tickets: out, migrated: true };
+}
+
+module.exports = { list, save, update, migrate };
 
 module.exports = { list, save, update };
