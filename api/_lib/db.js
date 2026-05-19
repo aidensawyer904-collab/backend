@@ -93,5 +93,3 @@ function migrate(tickets) {
 }
 
 module.exports = { list, save, update, migrate };
-
-module.exports = { list, save, update };
