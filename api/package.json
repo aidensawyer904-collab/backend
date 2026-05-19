@@ -1,0 +1,8 @@
+{
+  "name": "verveutils-backend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "engines": { "node": ">=18.0.0" },
+  "dependencies": {}
+}
