@@ -51,7 +51,7 @@ module.exports = async function handler(req, res) {
   // ── DEBUG ──────────────────────────────────────────────────────────────────
   if (req.query && req.query.id === 'debug') {
     try {
-      const records   = db().list();
+      const records   = await db().list();
       const binId     = process.env.JSONBIN_BIN_ID  || '';
       const apiKey    = process.env.JSONBIN_API_KEY || '';
       return res.status(200).json({
@@ -73,7 +73,7 @@ module.exports = async function handler(req, res) {
   // ── GET /api/tickets/:id ───────────────────────────────────────────────────
   if (req.method === 'GET') {
     try {
-      var records  = db().list();
+      var records  = await db().list();
       var ticket   = records.find(function (t) {
         return String(t.id).toLowerCase() === String(id).toLowerCase();
       });
@@ -84,7 +84,7 @@ module.exports = async function handler(req, res) {
         return String(t.id).toLowerCase() === String(id).toLowerCase();
       });
       if (idx !== -1) records[idx] = ticket;
-      db().save(records);
+      await db().save(records);
       return res.status(200).json(ticket);
     } catch (err) {
       console.error('[GET /api/tickets/:id]', err);
@@ -95,7 +95,7 @@ module.exports = async function handler(req, res) {
   // ── PATCH /api/tickets/:id ────────────────────────────────────────────────
   if (req.method === 'PATCH') {
     try {
-      var records = db().list();
+      var records  = await db().list();
       var idx     = records.findIndex(function (t) {
         return String(t.id).toLowerCase() === String(id).toLowerCase();
       });
@@ -167,7 +167,7 @@ module.exports = async function handler(req, res) {
       }
 
       records[idx] = updated;
-      db().save(records);
+      await db().save(records);
       return res.status(200).json(updated);
     } catch (err) {
       console.error('[PATCH /api/tickets/:id]', err);

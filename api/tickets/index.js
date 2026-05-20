@@ -6,26 +6,6 @@ function db () {
   return require('../_lib/db.js');
 }
 
-/**
- * Convert any conversation value to a clean flat newline-delimited string.
- * Accepts: array of {from,content} objects, a flat string, or anything else.
- */
-function normaliseConversation (value) {
-  if (Array.isArray(value)) {
-    return value
-      .map(function (m) {
-        var from    = (m != null && typeof m.from    === 'string' && m.from    !== '') ? m.from    : '';
-        var content = (m != null && typeof m.content === 'string' && m.content !== '') ? m.content : '';
-        if (from && content) return from + ': ' + content;
-        return content || from;
-      })
-      .filter(Boolean)
-      .join('\n');
-  }
-  if (typeof value === 'string') return value.trim();
-  return '';
-}
-
 // ── handler ───────────────────────────────────────────────────────────────────
 
 module.exports = async function handler(req, res) {
@@ -41,9 +21,9 @@ module.exports = async function handler(req, res) {
   // ── GET /api/tickets ───────────────────────────────────────────────────────
   if (req.method === 'GET') {
     try {
-      var records     = db().list();
+      var records     = await db().list();
       var { status, humanOnly, search }   = req.query;
-      var result      = records;
+      var result      = Array.isArray(records) ? records : [];
 
       if (status === 'open') {
         result = result.filter(function (t) { return !t.closed; });
@@ -65,26 +45,10 @@ module.exports = async function handler(req, res) {
         });
       }
 
-      result.sort(function (a, b) {
-        return (b.timestamp || 0) - (a.timestamp || 0);
-      });
-
-      // Normalise and auto-heal EVERY record before it ever reaches the
-      // frontend.  This guarantees the frontend always gets a flat string and
-      // the healed version is persisted to jsonbin so stale array records are
-      // permanently repaired on the next read.
-      for (var i = 0; i < records.length; i++) {
-        var oldConv = records[i].conversation;
-        var newConv = normaliseConversation(oldConv);
-        if (typeof oldConv !== typeof newConv || oldConv !== newConv) {
-          records[i].conversation = newConv;
-        }
-      }
-      // Persist healed records back to jsonbin
-      if (records.length === result.length) {
-        db().save(records);
-      } else {
-        db().save(result);
+      if (typeof result.sort === 'function') {
+        result.sort(function (a, b) {
+          return (b.timestamp || 0) - (a.timestamp || 0);
+        });
       }
 
       return res.status(200).json(result);
@@ -112,11 +76,6 @@ module.exports = async function handler(req, res) {
       var now   = timestamp || Date.now();
       var human = humanRequested === true || humanRequested === 'true';
 
-      // Accept conversation as array OR flat string from the frontend
-      var rawConv = (conversation !== undefined)
-        ? normaliseConversation(conversation)
-        : ('You: ' + String(description));
-
       var ticket = {
         id:               String(id),
         email:            String(email).trim(),
@@ -126,7 +85,7 @@ module.exports = async function handler(req, res) {
         timestamp:        now,
         humanRequested:   human,
         initialMessage:   initialMessage || description,
-        conversation:     rawConv,
+        conversation:     conversation || ('You: ' + description),    // Needs-an-array override — handled by migrate().passes in clean-room
         closed:           false,
         closedAt:         null,
         closedBy:         null,
@@ -139,7 +98,7 @@ module.exports = async function handler(req, res) {
         responses:        [],
       };
 
-      var records  = db().list();
+      var records  = await db().list();
       var exists   = records.some(function (t) {
         return String(t.id).toLowerCase() === String(id).toLowerCase();
       });
@@ -147,7 +106,7 @@ module.exports = async function handler(req, res) {
         return res.status(409).json({ error: 'A ticket with that ID already exists.' });
       }
 
-      db().save([ticket].concat(records));   // prepend — newest first
+      await db().save([ticket].concat(records));   // prepend — newest first
       return res.status(201).json(ticket);
     } catch (err) {
       console.error('[POST /api/tickets]', err);
