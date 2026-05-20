@@ -2,8 +2,28 @@
 
 // ── db helper ─────────────────────────────────────────────────────────────────
 
-function db() {
+function db () {
   return require('../_lib/db.js');
+}
+
+/**
+ * Convert any conversation value to a clean flat newline-delimited string.
+ * Accepts: array of {from,content} objects, a flat string, or anything else.
+ */
+function normaliseConversation (value) {
+  if (Array.isArray(value)) {
+    return value
+      .map(function (m) {
+        var from    = (m != null && typeof m.from    === 'string' && m.from    !== '') ? m.from    : '';
+        var content = (m != null && typeof m.content === 'string' && m.content !== '') ? m.content : '';
+        if (from && content) return from + ': ' + content;
+        return content || from;
+      })
+      .filter(Boolean)
+      .join('\n');
+  }
+  if (typeof value === 'string') return value.trim();
+  return '';
 }
 
 // ── handler ───────────────────────────────────────────────────────────────────
@@ -21,9 +41,9 @@ module.exports = async function handler(req, res) {
   // ── GET /api/tickets ───────────────────────────────────────────────────────
   if (req.method === 'GET') {
     try {
-      const records     = await db().list();
-      const { status, humanOnly, search } = req.query;
-      let   result      = records;
+      var records     = db().list();
+      var { status, humanOnly, search }   = req.query;
+      var result      = records;
 
       if (status === 'open') {
         result = result.filter(function (t) { return !t.closed; });
@@ -36,11 +56,11 @@ module.exports = async function handler(req, res) {
       }
 
       if (search) {
-        const term = String(search).toLowerCase();
-        result = result.filter(function (t) {
-          return (String(t.id    || '').toLowerCase().indexOf(term) !== -1) ||
-                 (String(t.email || '').toLowerCase().indexOf(term) !== -1) ||
-                 (String(t.subject || '').toLowerCase().indexOf(term) !== -1) ||
+        var term = String(search).toLowerCase();
+        result   = result.filter(function (t) {
+          return (String(t.id       || '').toLowerCase().indexOf(term) !== -1) ||
+                 (String(t.email    || '').toLowerCase().indexOf(term) !== -1) ||
+                 (String(t.subject  || '').toLowerCase().indexOf(term) !== -1) ||
                  (String(t.description || '').toLowerCase().indexOf(term) !== -1);
         });
       }
@@ -48,6 +68,24 @@ module.exports = async function handler(req, res) {
       result.sort(function (a, b) {
         return (b.timestamp || 0) - (a.timestamp || 0);
       });
+
+      // Normalise and auto-heal EVERY record before it ever reaches the
+      // frontend.  This guarantees the frontend always gets a flat string and
+      // the healed version is persisted to jsonbin so stale array records are
+      // permanently repaired on the next read.
+      for (var i = 0; i < records.length; i++) {
+        var oldConv = records[i].conversation;
+        var newConv = normaliseConversation(oldConv);
+        if (typeof oldConv !== typeof newConv || oldConv !== newConv) {
+          records[i].conversation = newConv;
+        }
+      }
+      // Persist healed records back to jsonbin
+      if (records.length === result.length) {
+        db().save(records);
+      } else {
+        db().save(result);
+      }
 
       return res.status(200).json(result);
     } catch (err) {
@@ -59,8 +97,8 @@ module.exports = async function handler(req, res) {
   // ── POST /api/tickets ──────────────────────────────────────────────────────
   if (req.method === 'POST') {
     try {
-      const body = req.body || {};
-      const {
+      var body = req.body || {};
+      var {
         id, email, subject, description,
         humanRequested, initialMessage, conversation, timestamp,
       } = body;
@@ -71,40 +109,45 @@ module.exports = async function handler(req, res) {
         });
       }
 
-      const now   = timestamp || Date.now();
-      const human = humanRequested === true || humanRequested === 'true';
+      var now   = timestamp || Date.now();
+      var human = humanRequested === true || humanRequested === 'true';
 
-      const ticket = {
-        id:                String(id),
-        email:             String(email).trim(),
-        subject:           String(subject),
-        description:       String(description),
-        status:            'open',
-        timestamp:         now,
-        humanRequested:    human,
-        initialMessage:    initialMessage || description,
-        conversation:      conversation || ('You: ' + description),
-        closed:            false,
-        closedAt:          null,
-        closedBy:          null,
-        lastReply:         null,
-        repliedAt:         null,
-        repliedBy:         null,
-        humanRequestedAt:  human ? now : null,
-        claimedBy:         null,
-        claimedAt:         null,
-        responses:         [],
+      // Accept conversation as array OR flat string from the frontend
+      var rawConv = (conversation !== undefined)
+        ? normaliseConversation(conversation)
+        : ('You: ' + String(description));
+
+      var ticket = {
+        id:               String(id),
+        email:            String(email).trim(),
+        subject:          String(subject),
+        description:      String(description),
+        status:           'open',
+        timestamp:        now,
+        humanRequested:   human,
+        initialMessage:   initialMessage || description,
+        conversation:     rawConv,
+        closed:           false,
+        closedAt:         null,
+        closedBy:         null,
+        lastReply:        null,
+        repliedAt:        null,
+        repliedBy:        null,
+        humanRequestedAt: human ? now : null,
+        claimedBy:        null,
+        claimedAt:        null,
+        responses:        [],
       };
 
-      const records      = await db().list();
-      const exists        = records.some(function (t) {
+      var records  = db().list();
+      var exists   = records.some(function (t) {
         return String(t.id).toLowerCase() === String(id).toLowerCase();
       });
       if (exists) {
         return res.status(409).json({ error: 'A ticket with that ID already exists.' });
       }
 
-      await db().save([ticket].concat(records));   // prepend — newest first
+      db().save([ticket].concat(records));   // prepend — newest first
       return res.status(201).json(ticket);
     } catch (err) {
       console.error('[POST /api/tickets]', err);

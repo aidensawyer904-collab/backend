@@ -7,6 +7,35 @@ function db() {
   return require('../_lib/db.js');
 }
 
+/**
+ * Convert any conversation value — array of message objects, flat string, or
+ * anything else — into a clean flat newline-delimited string.
+ *
+ * Ensures the frontend can always:
+ *  - call String(ticket.conversation).length for change-detection
+ *  - call ticket.conversation.split('\n')  to render messages
+ *
+ * Array shape stored in jsonbin by old versions:
+ *   [{ from:String, content:String, timestamp:Number }, …]
+ * Flat string shape required by the frontend:
+ *   "from: content\nfrom: content"
+ */
+function normaliseConversation (value) {
+  if (Array.isArray(value)) {
+    return value
+      .map(function (m) {
+        var from    = (m != null && typeof m.from    === 'string' && m.from    !== '') ? m.from    : '';
+        var content = (m != null && typeof m.content === 'string' && m.content !== '') ? m.content : '';
+        if (from && content) return from + ': ' + content;
+        return content || from;
+      })
+      .filter(Boolean)
+      .join('\n');
+  }
+  if (typeof value === 'string') return value.trim();
+  return '';
+}
+
 // ── handler ───────────────────────────────────────────────────────────────────
 
 module.exports = async function handler(req, res) {
@@ -22,7 +51,7 @@ module.exports = async function handler(req, res) {
   // ── DEBUG ──────────────────────────────────────────────────────────────────
   if (req.query && req.query.id === 'debug') {
     try {
-      const records   = await db().list();
+      const records   = db().list();
       const binId     = process.env.JSONBIN_BIN_ID  || '';
       const apiKey    = process.env.JSONBIN_API_KEY || '';
       return res.status(200).json({
@@ -44,11 +73,18 @@ module.exports = async function handler(req, res) {
   // ── GET /api/tickets/:id ───────────────────────────────────────────────────
   if (req.method === 'GET') {
     try {
-      const records  = await db().list();
-      const ticket   = records.find(function (t) {
+      var records  = db().list();
+      var ticket   = records.find(function (t) {
         return String(t.id).toLowerCase() === String(id).toLowerCase();
       });
       if (!ticket) return res.status(404).json({ error: 'Ticket not found.' });
+      ticket.conversation = normaliseConversation(ticket.conversation);
+      // Auto-heal the record in jsonbin so this ticket is permanently fixed
+      var idx = records.findIndex(function (t) {
+        return String(t.id).toLowerCase() === String(id).toLowerCase();
+      });
+      if (idx !== -1) records[idx] = ticket;
+      db().save(records);
       return res.status(200).json(ticket);
     } catch (err) {
       console.error('[GET /api/tickets/:id]', err);
@@ -59,30 +95,30 @@ module.exports = async function handler(req, res) {
   // ── PATCH /api/tickets/:id ────────────────────────────────────────────────
   if (req.method === 'PATCH') {
     try {
-      const records = await db().list();
-      const idx     = records.findIndex(function (t) {
+      var records = db().list();
+      var idx     = records.findIndex(function (t) {
         return String(t.id).toLowerCase() === String(id).toLowerCase();
       });
       if (idx === -1) return res.status(404).json({ error: 'Ticket not found.' });
 
-      const body = req.body || {};
-      const {
+      var body = req.body || {};
+      var {
         closed, closedBy, lastReply, repliedBy,
         humanRequested, conversation, claimedBy,
       } = body;
 
-      const updated = Object.assign({}, records[idx]);
-      const now     = Date.now();
-      let   used    = false;
+      var updated = Object.assign({}, records[idx]);
+      var now     = Date.now();
+      var used    = false;
 
       if (closed !== undefined) {
-        const coerce = function (v) {
+        var coerce = function (v) {
           return v === true || v === 'true' || v === 1 || v === '1';
         };
-        const val          = coerce(closed);
-        updated.closed     = val;
-        updated.status     = val ? 'closed' : 'open';
-        updated.closedAt   = val ? now : updated.closedAt;
+        var val              = coerce(closed);
+        updated.closed       = val;
+        updated.status       = val ? 'closed' : 'open';
+        updated.closedAt     = val ? now : updated.closedAt;
         if (val && closedBy) updated.closedBy = closedBy;
         used = true;
       }
@@ -91,29 +127,30 @@ module.exports = async function handler(req, res) {
         updated.lastReply = lastReply;
         updated.repliedAt = now;
         if (repliedBy)    updated.repliedBy = repliedBy;
-        const responses   = Array.isArray(updated.responses)
+        var responses     = Array.isArray(updated.responses)
           ? updated.responses : [];
         updated.responses = responses.concat([{
-          from:     repliedBy || 'Staff',
-          reply:    lastReply,
-          timestamp: now,
+          from:       repliedBy || 'Staff',
+          reply:      lastReply,
+          timestamp:  now,
         }]);
         used = true;
       }
 
       if (humanRequested !== undefined) {
-        const coerce = function (v) {
+        var coerce = function (v) {
           return v === true || v === 'true' || v === 1 || v === '1';
         };
-        const val         = coerce(humanRequested);
-        updated.humanRequested = val;
+        var val                  = coerce(humanRequested);
+        updated.humanRequested   = val;
         updated.humanRequestedAt = val ? (updated.humanRequestedAt || now)
                                        : updated.humanRequestedAt;
         used = true;
       }
 
       if (conversation !== undefined) {
-        updated.conversation = conversation;
+        // Normalise before ever touching jsonbin — accepts array, string, or object
+        updated.conversation = normaliseConversation(conversation);
         used = true;
       }
 
@@ -129,9 +166,8 @@ module.exports = async function handler(req, res) {
         });
       }
 
-      const next = records.slice();
-      next[idx] = updated;
-      await db().save(next);
+      records[idx] = updated;
+      db().save(records);
       return res.status(200).json(updated);
     } catch (err) {
       console.error('[PATCH /api/tickets/:id]', err);
