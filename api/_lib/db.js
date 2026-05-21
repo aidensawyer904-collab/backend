@@ -171,9 +171,14 @@ async function save (records) {
   //     CDN write latency.  Vercel serverless functions can terminate before
   //     the CDN blob lands on disk; this retry loop guarantees the write 
   //     is visible on the next reader before save() returns to the caller.
+  // ── fetch-with-timeout helper ────────────────────────────────────────────────
+  var fetchTo = function (input, init) {
+    return globalThis.fetch(input, Object.assign({ signal: AbortSignal.timeout(8000) }, init));
+  };
+
   var url  = base();
   for (var attempt = 1; attempt <= 3; attempt++) {
-    const putRes = await globalThis.fetch(url, {
+    const putRes = await fetchTo(url, {
       method:  'PUT',
       headers: authHeaders(),
       body:    JSON.stringify(clean),
@@ -188,7 +193,7 @@ async function save (records) {
     var ok = false;
     for (var poll = 0; poll < 5; poll++) {
       await new Promise(function (r) { setTimeout(r, 250); }); // let CDN flush first
-      var rb = await globalThis.fetch(url + '?meta=false', { headers: authHeaders() });
+      var rb = await fetchTo(url + '?meta=false', { headers: authHeaders() });
       if (rb.ok) {
         var rbData = null;
         try { rbData = await rb.json(); } catch (_) { rbData = null; }
@@ -209,7 +214,7 @@ async function save (records) {
 
   // ── Vercel Function log confirms write landed before handler returns ──────────
   try {
-    var finalRb = await globalThis.fetch(url + '?meta=false', { headers: authHeaders() });
+    var finalRb = await fetchTo(url + '?meta=false', { headers: authHeaders() });
     if (finalRb.ok) {
       var finalData = await finalRb.json();
       var stored    = (finalData && finalData.record)
