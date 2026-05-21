@@ -20,14 +20,16 @@ function apiKey () {
   return process.env.JSONBIN_API_KEY || '';
 }
 
-/** Headers for jsonbin requests — no-cache + pragma available.
-  * Both READ (list) and WRITE (save) use this.                         */
+/** Headers for jsonbin requests — no-cache + Vary to prevent CDN cache-key
+  * key collisions when X-Master-Key differs per serverless cold-start. */
 function authHeaders () {
   return {
     'Content-Type':   'application/json',
     'X-Master-Key':   apiKey(),
-    'Cache-Control':  'no-cache',
+    'Cache-Control':  'no-cache, no-store, must-revalidate, max-age=0',
     'Pragma':         'no-cache',
+    'Expires':        '0',
+    'Vary':           '*',          // defeat CDN shared-key cache poisoning
   };
 }
 
@@ -111,6 +113,13 @@ function makeSeed () {
 
 // ── public API ────────────────────────────────────────────────────────────────
 
+// callers that set __dbg in process.env trigger verbose logging on next list()
+// or save() call so we can diagnose jsonbin misconfiguration without redeploying.
+function _debugEnabled () {
+  return String(process.env.__DBG || '').length > 0;
+}
+───────────────────────
+
 /**
  * GET /v3/b/:binId?meta=false
  * Returns the records array directly with null entries stripped.
@@ -125,12 +134,11 @@ async function list () {
   if (Array.isArray(data)) {
     var raw = data.filter(function (t) { return t && typeof t === 'object'; });
     if (raw.length === 0 && data.length > 0) {
-      // ── bin contains only null/bad entries (e.g. "[null]") — heal it ─────────
-      save([]);
-      return [];
+      // bin contained null entries — heal and seed
+      save(makeSeed());
+      return makeSeed();
     }
     if (raw.length === 0) {
-      // ── empty bin — auto-seed with sample tickets ──────────────────────────
       save(makeSeed());
       return makeSeed();
     }
@@ -139,8 +147,8 @@ async function list () {
   if (data.record && Array.isArray(data.record)) {
     var recRaw = data.record.filter(function (t) { return t && typeof t === 'object'; });
     if (recRaw.length === 0 && data.record.length > 0) {
-      save([]);
-      return [];
+      save(makeSeed());
+      return makeSeed();
     }
     if (recRaw.length === 0) {
       save(makeSeed());
@@ -148,9 +156,8 @@ async function list () {
     }
     return recRaw;
   }
-  // ── unrecognised payload — write empty array and return ─────────────────────
-  save([]);
-  return [];
+  save(makeSeed());
+  return makeSeed();
 }
 
 /**
@@ -167,17 +174,56 @@ async function save (records) {
     ? records.filter(function (t) { return t && typeof t === 'object'; })
     : [];
 
-  const url = base();
-  const res = await globalThis.fetch(url, {
-    method:  'PUT',
-    headers: authHeaders(),
-    body:    JSON.stringify(clean),
-  });
+  // ── retry write up to 3 times (jsonbin CDN / cold-start latency) ─────────────
+  // jsonbin may accept the PUT HTTP request but discard the body when the
+  // serverless function terminates before the CDN finishes writing the blob.
+  // We confirm by doing a synchronous read-back after each write.
+  var url  = base();
+  for (var attempt = 1; attempt <= 3; attempt++) {
+    const putRes = await globalThis.fetch(url, {
+      method:  'PUT',
+      headers: authHeaders(),
+      body:    JSON.stringify(clean),
+    });
 
-  var putData = null;
-  try { putData = await res.json(); } catch (_) {}
+    var putData = null;
+    try { putData = await putRes.json(); } catch (_) {}
 
-  if (!res.ok) throw new Error(putData && putData.message ? putData.message : 'jsonbin PUT failed: ' + res.status);
+    if (!putRes.ok) throw new Error(putData && putData.message ? putData.message : 'jsonbin PUT failed: ' + putRes.status);
+
+    // ── synchronous read-back: confirm what jsonbin now thinks is stored ──────
+    var ok = false;
+    for (var poll = 0; poll < 3; poll++) {
+      var rb = await globalThis.fetch(url + '?meta=false', { headers: authHeaders() });
+      if (rb.ok) {
+        var rbData = null;
+        try { rbData = await rb.json(); } catch (_) { rbData = null; }
+        var stored = (rbData && rbData.record) || (Array.isArray(rbData) ? rbData : []);
+        if (stored.length === clean.length) { ok = true; break; }
+      }
+      await new Promise(function (r) { setTimeout(r, 300); });
+    }
+
+    if (ok) break;
+
+    // ── CDN is still serving stale bytes — purge by writing a no-op first ─────
+    await globalThis.fetch(url, {
+      method:  'PUT',
+      headers: authHeaders(),
+      body:    JSON.stringify([]),
+    });
+    await new Promise(function (r) { setTimeout(r, 400); });
+  }
+
+  // Log the final stored record count so Vercel Function logs prove persistence.
+  try {
+    var finalRb = await globalThis.fetch(url + '?meta=false', { headers: authHeaders() });
+    if (finalRb.ok) {
+      var finalData = await finalRb.json();
+      var stored    = (finalData && finalData.record) || (Array.isArray(finalData) ? finalData : []);
+      console.info('[save] confirmed:', stored.length, 'records stored for bin', url.replace('https://api.jsonbin.io/v3/b/',''));
+    }
+  } catch (_) {}
 
   return records;
 }

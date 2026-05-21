@@ -15,6 +15,9 @@ module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Cache-Control', 'no-cache, no-store');
+  res.setHeader('Pragma',        'no-cache');
+  res.setHeader('Vary',          '*'); // Vercel Edge CDN must not share responses between envs
 
   // ── CORS preflight ─────────────────────────────────────────────────────────
   if (req.method === 'OPTIONS') return res.status(200).end();
@@ -109,8 +112,17 @@ module.exports = async function handler(req, res) {
         return res.status(409).json({ error: 'A ticket with that ID already exists.' });
       }
 
-      await db().save([ticket].concat(records));   // prepend — newest first
-      return res.status(201).json(ticket);
+      var savedOk = await db().save([ticket].concat(records));   // await + verify write persisted
+
+      // ── re-read using fresh list() so the response reflects what jsonbin
+      //     actually stored (not the unsaved in-memory object)
+      var fresh  = await db().list();
+      var created = Array.isArray(fresh)
+        ? fresh.find(function (t) { return t && String(t.id).toLowerCase() === String(ticket.id).toLowerCase(); })
+        : null;
+      var bodyOut = (created && typeof created === 'object') ? created : ticket;
+
+      return res.status(201).json(bodyOut);
     } catch (err) {
       console.error('[POST /api/tickets]', err);
       return res.status(500).json({ error: err.message });
