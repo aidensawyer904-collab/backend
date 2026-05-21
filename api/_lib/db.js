@@ -20,24 +20,14 @@ function apiKey () {
   return process.env.JSONBIN_API_KEY || '';
 }
 
-/** Headers for jsonbin READ requests — Vary: * prevents any CDN caching,
- *  no-cache + pragma suppress shared cache. */
-function readHeaders () {
+/** Headers for jsonbin requests — no-cache + pragma available.
+  * Both READ (list) and WRITE (save) use this.                         */
+function authHeaders () {
   return {
     'Content-Type':   'application/json',
     'X-Master-Key':   apiKey(),
     'Cache-Control':  'no-cache',
     'Pragma':         'no-cache',
-    'Vary':           '*',
-  };
-}
-
-/** Headers for jsonbin WRITE requests — omit no-cache so the written ETag
- *  becomes the live canonical response for subsequent reads. */
-function writeHeaders () {
-  return {
-    'Content-Type': 'application/json',
-    'X-Master-Key': apiKey(),
   };
 }
 
@@ -49,15 +39,11 @@ function base () {
 
 /**
  * GET /v3/b/:binId?meta=false
- * Returns the records array directly.  Never writes to jsonbin from this
- * path — that was the cause of POST-vs-GET race conditions and 404s.
- *
- * null/invalid entries are stripped before returning so callers never see
- * a crasher in their filter/find/map/sort chain.
+ * Returns the records array directly with null entries stripped.
  */
 async function list () {
   const url     = base() + '?meta=false';
-  const res     = await globalThis.fetch(url, { headers: readHeaders() });
+  const res     = await globalThis.fetch(url, { headers: authHeaders() });
   const data    = await res.json();
 
   if (!res.ok) throw new Error(data.message || 'jsonbin GET failed: ' + res.status);
@@ -74,36 +60,25 @@ async function list () {
 /**
  * PUT /v3/b/:binId — authoritative write.
  *
- * After the PUT succeeds we do a single read-back (GET ?meta=false with
- * no-cache headers).  That read-back is the value we return — not what
- * jsonbin claimed to have saved, but what it IS serving right now.
- *
- * This eliminates thePOST-vs-GET race: every caller gets the live record set
- * as viewed from a fresh, uncached read.
+ * Does NOT do a follow-up GET read-back.  jsonbin's CDN may still serve a
+ * stale cached version of the same path on that GET, making the read-back
+ * unreliable.  Instead we return the records argument — every caller already
+ * knows exactly what it asked the function to store.
  */
 async function save (records) {
-  const putUrl = base();
-  const putRes = await globalThis.fetch(putUrl, {
+  const url = base();
+  const res = await globalThis.fetch(url, {
     method:  'PUT',
-    headers: writeHeaders(),
+    headers: authHeaders(),
     body:    JSON.stringify(Array.isArray(records) ? records : []),
   });
 
-  // jsonbin 200 OK wraps the saved record in {record: […], metadata: {…}}
   var putData = null;
-  try { putData = await putRes.json(); } catch (_) {}
+  try { putData = await res.json(); } catch (_) {}
 
-  if (!putRes.ok) throw new Error(putData && putData.message ? putData.message : 'jsonbin PUT failed: ' + putRes.status);
+  if (!res.ok) throw new Error(putData && putData.message ? putData.message : 'jsonbin PUT failed: ' + res.status);
 
-  // ── Authoritative read-back ─────────────────────────────────────────────────
-  const getUrl  = base() + '?meta=false';
-  const getRes  = await globalThis.fetch(getUrl, { headers: readHeaders() });
-  const getData = await getRes.json();
-
-  if (!getRes.ok) throw new Error(getData.message || 'jsonbin read-back GET failed: ' + getRes.status);
-  if (Array.isArray(getData))  return getData;
-  if (getData.record && Array.isArray(getData.record)) return getData.record;
-  return records;  // absolute fallback — never crash the caller
+  return records;
 }
 
 /**
