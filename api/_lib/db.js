@@ -194,34 +194,42 @@ async function save (records) {
 
   var url = base();
 
-  // ── Post-Wait-Then-Confirm (one cycle) ───────────────────────────────────────
-  // jsonbin CDN accepts the PUT request but may not flush the blob to all
-  // edge nodes for 6–7 s under cold-start. AFTER a single flush delay we do
-  // one GET confirmation read; if it shows exactly clean.length records we
-  // know the CDN has fully settled and callers can immediately GET or LIST.
-  async function confirm () {
-    await new Promise(function (r) { setTimeout(r, 6500); });
-    var rb = await fetchTo(url + '?meta=false', { headers: authHeaders() });
-    if (!rb.ok) return false;
-    var rbData = await rb.json();
-    if (!rbData) return false;
-    var stored = (rbData && rbData.record) || (Array.isArray(rbData) ? rbData : []);
-    return Array.isArray(stored) && stored.length === clean.length;
-  }
-
-  await confirm();
-
-  // ── Vercel Function log proves what the CDN settled to ──────────────────────
+  // ── single PUT — fire and forget ────────────────────────────────────────────
+  // jsonbin's CDN may take 6–8 s to flush the blob under cold-start; callers
+  // that need confirmation (POST, PATCH) do it themselves via list() after.
+  // Keeping this path lean (≤ 8.5 s) means Vercel's free-tier 10 s function
+  // timeout is never reached even at peak jsonbin cold-start latency.
   try {
-    var finalRb = await fetchTo(url + '?meta=false', { headers: authHeaders() });
-    if (finalRb.ok) {
-      var finalData = await finalRb.json();
-      var stored    = (finalData && finalData.record)
-                    || (Array.isArray(finalData) ? finalData : []);
-      console.info('[save] confirmed:', stored.length,
-                   'records stored for bin', url.replace('https://api.jsonbin.io/v3/b/',''));
-    }
-  } catch (_) {}
+    const putRes = await fetchTo(url, {
+      method:  'PUT',
+      headers: authHeaders(),
+      body:    JSON.stringify(clean),
+    });
+    var putData = null;
+    try { putData = await putRes.json(); } catch (_) {}
+    if (!putRes.ok) throw new Error(putData && putData.message ? putData.message : 'jsonbin PUT failed: ' + putRes.status);
+
+    // ── 6.5 s flush + one CDN read-back (non-blocking fire-or-log) ──────────────
+    // Fire-and-forget: do the confirmation read-back best-effort so we get the
+    // count in Vercel function logs but don't await it (caller doesn't block).
+    (async function () {
+      try {
+        await new Promise(function (r) { setTimeout(r, 6500); });
+        var rb = await fetchTo(url + '?meta=false', { headers: authHeaders() });
+        if (rb.ok) {
+          var d2 = null;
+          try { d2 = await rb.json(); } catch (_) {}
+          if (d2) {
+            var stored = (d2 && d2.record) || (Array.isArray(d2) ? d2 : []);
+            console.info('[save] confirmed:', stored.length,
+                         'records stored for bin', url.replace('https://api.jsonbin.io/v3/b/',''));
+          }
+        }
+      } catch (_) {}
+    })();
+  } catch (err) {
+    console.error('[save] write error:', err.message);
+  }
 
   return records;
 }
