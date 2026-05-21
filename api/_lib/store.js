@@ -42,7 +42,7 @@ function keys () { return Object.keys(store); }
 // ── seed ────────────────────────────────────────────────────────────────────
 
 function _seed () {
-  var sid = function (id) { store[id.replace(/-/g, '_')] = { id: id, email: 'seed@local', subject: 'seed', description: 'seed store', status: 'open', timestamp: Math.floor(Date.now() / 1000), humanRequested: false, initialMessage: 'seed', conversation: 'seed', closed: false, closedAt: null, closedBy: null, lastReply: null, repliedAt: null, repliedBy: null, humanRequestedAt: null, claimedBy: null, claimedAt: null, responses: [] }; };
+  var sid = function (id) { store[keyOf(id)] = { id: id, email: 'seed@local', subject: 'seed', description: 'seed store', status: 'open', timestamp: Math.floor(Date.now() / 1000), humanRequested: false, initialMessage: 'seed', conversation: 'seed', closed: false, closedAt: null, closedBy: null, lastReply: null, repliedAt: null, repliedBy: null, humanRequestedAt: null, claimedBy: null, claimedAt: null, responses: [] }; };
   sid('TE2ZZ6-TEC'); sid('1CMVXO-TEC'); sid('F6DQMK-DEB');
 }
 

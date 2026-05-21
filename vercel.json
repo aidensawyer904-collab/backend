@@ -8,8 +8,8 @@
   },
   "routes": [
     {
-      "src": "/api/tickets/(?<id>[^/]+)",
-      "dest": "/api/tickets/[id].js?id=$id",
+      "src": "/api/tickets/.*",
+      "dest": "/api/tickets/index.js",
       "headers": { "Cache-Control": "no-store" }
     },
     {
