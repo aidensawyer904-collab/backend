@@ -35,11 +35,18 @@ function add (raw) {
   store[String(raw.id).replace(/-/g, '_')] = mk(raw);
 }
 
-add({ id: 'TE2ZZ6-TEC', email: 'alice@example.com', subject: 'Subscription not activating',    description: 'Paid for Pro plan but account still shows Free tier.' });
-add({ id: '1CMVXO-TEC', email: 'bob@example.com',   subject: 'Cannot upload avatar',          description: 'Upload button does nothing on Chrome 131.' });
-add({ id: 'F6DQMK-DEB', email: 'carol@example.com', subject: 'Billing invoice missing',      description: 'Need a copy of the March invoice for expense report.' });
-
 function keyOf (id) { return String(id).toUpperCase().replace(/-/g, '_'); }
+
+function keys () { return Object.keys(store); }
+
+// ── seed ────────────────────────────────────────────────────────────────────
+
+function _seed () {
+  var sid = function (id) { store[id.replace(/-/g, '_')] = { id: id, email: 'seed@local', subject: 'seed', description: 'seed store', status: 'open', timestamp: Math.floor(Date.now() / 1000), humanRequested: false, initialMessage: 'seed', conversation: 'seed', closed: false, closedAt: null, closedBy: null, lastReply: null, repliedAt: null, repliedBy: null, humanRequestedAt: null, claimedBy: null, claimedAt: null, responses: [] }; };
+  sid('TE2ZZ6-TEC'); sid('1CMVXO-TEC'); sid('F6DQMK-DEB');
+}
+
+_seed(); // run once at module load
 
 // ── helpers ───────────────────────────────────────────────────────────────
 
