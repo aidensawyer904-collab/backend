@@ -154,5 +154,5 @@ function create (body) {
 
 module.exports = {
   store, keyOf, normaliseConversation,
-  listAll, findByKey, patchByKey, create,
+  listAll, findByKey, patchByKey, create, _seed,
 };
