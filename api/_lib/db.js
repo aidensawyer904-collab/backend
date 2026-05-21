@@ -185,8 +185,8 @@ async function save (records) {
 
     if (!putRes.ok) throw new Error(putData && putData.message ? putData.message : 'jsonbin PUT failed: ' + putRes.status);
 
-    // ── brief CDN flush delay, then one confirmation read ──────────────────────
-    await new Promise(function (r) { setTimeout(r, 300); });
+    // ── 3 s CDN flush delay, then one confirmation read ──────────────────────
+    await new Promise(function (r) { setTimeout(r, 3000); });
     var rb = await fetchTo(url + '?meta=false', { headers: authHeaders() });
     if (rb.ok) {
       try {
