@@ -49,10 +49,19 @@ async function list () {
   if (!res.ok) throw new Error(data.message || 'jsonbin GET failed: ' + res.status);
 
   if (Array.isArray(data)) {
-    return data.filter(function (t) { return t && typeof t === 'object'; });
+    var raw = data.filter(function (t) { return t && typeof t === 'object'; });
+    if (raw.length === 0 && data.length > 0) {
+      // ── bin contains only null/bad entries (e.g. "[null]") — heal it ─────────
+      save([]);
+    }
+    return raw;
   }
   if (data.record && Array.isArray(data.record)) {
-    return data.record.filter(function (t) { return t && typeof t === 'object'; });
+    var recRaw = data.record.filter(function (t) { return t && typeof t === 'object'; });
+    if (recRaw.length === 0 && data.record.length > 0) {
+      save([]);
+    }
+    return recRaw;
   }
   return [];
 }
@@ -66,11 +75,16 @@ async function list () {
  * knows exactly what it asked the function to store.
  */
 async function save (records) {
+  // ── self-heal: strip null/bad entries before ever writing to the bin ────────
+  var clean = Array.isArray(records)
+    ? records.filter(function (t) { return t && typeof t === 'object'; })
+    : [];
+
   const url = base();
   const res = await globalThis.fetch(url, {
     method:  'PUT',
     headers: authHeaders(),
-    body:    JSON.stringify(Array.isArray(records) ? records : []),
+    body:    JSON.stringify(clean),
   });
 
   var putData = null;
