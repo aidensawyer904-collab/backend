@@ -65,7 +65,13 @@ module.exports = async function handler(req, res) {
     }
   }
 
-  var id = req.query && req.query.id || (req.params && req.params.id) || (req.params && req.params[0]);
+  var id = req.query && req.query.id || (req.params && req.params.id);
+  if (!id) {
+    var raw = req.url || req.rawUrl || '';
+    var stripped = raw.split('?')[0];
+    var parts = stripped.split('/').filter(Boolean);
+    id = parts[parts.length - 1] || '';
+  }
   if (!id) return res.status(400).json({ error: 'Ticket ID is required.' });
 
   // ── GET /api/tickets/:id ───────────────────────────────────────────────────
