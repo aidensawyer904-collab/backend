@@ -2,17 +2,20 @@
   "version": 2,
   "functions": {
     "api/**/*.js": {
-      "includeFiles": "api/**"
+      "includeFiles": "api/**",
+      "maxDuration": 30
     }
   },
   "routes": [
     {
       "src": "/api/tickets/(?<id>[^/]+)",
-      "dest": "/api/tickets/[id].js?id=$id"
+      "dest": "/api/tickets/[id].js?id=$id",
+      "headers": { "Cache-Control": "no-store" }
     },
     {
       "src": "/api/tickets",
-      "dest": "/api/tickets/index.js"
+      "dest": "/api/tickets/index.js",
+      "headers": { "Cache-Control": "no-store" }
     }
   ]
 }

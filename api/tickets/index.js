@@ -1,69 +1,55 @@
 'use strict';
 
-// ── db helper ─────────────────────────────────────────────────────────────────
+// ── shared store ─────────────────────────────────────────────────────────
 
-function db () {
-  return require('../_lib/db.js');
-}
+var _st = require('../_lib/store.js');
+var store = _st.store;
+var keyOf = _st.keyOf;
+var create = _st.create;
 
-// ── handler ───────────────────────────────────────────────────────────────────
+// ── handler ───────────────────────────────────────────────────────────────
 
 module.exports = async function handler(req, res) {
-  // ── response headers (before anything else) ────────────────────────────────
   res.setHeader('Content-Type',              'application/json');
   res.setHeader('Access-Control-Allow-Origin', 'https://verveutils.web.app');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  res.setHeader('Cache-Control', 'no-cache, no-store');
-  res.setHeader('Pragma',        'no-cache');
-  res.setHeader('Vary',          '*'); // Vercel Edge CDN must not share responses between envs
+  res.setHeader('Access-Control-Allow-Methods','GET, POST, PATCH, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers','Content-Type');
+  res.setHeader('Access-Control-Allow-Credentials','true');
+  res.setHeader('Cache-Control','no-cache, no-store');
+  res.setHeader('Pragma','no-cache');
+  res.setHeader('Vary','*');
 
-  // ── CORS preflight ─────────────────────────────────────────────────────────
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  // ── GET /api/tickets ───────────────────────────────────────────────────────
+  // ── GET ────────────────────────────────────────────────────────────────────
   if (req.method === 'GET') {
-    try {
-      var all        = await db().list();
-      var result     = Array.isArray(all) ? all.filter(function (t) { return t && typeof t === 'object'; }) : [];
+    var result = Object.values(store).filter(function (t) { return t && typeof t === 'object'; });
 
-      var { status, humanOnly, search } = req.query;
+    var { status, humanOnly, search } = req.query;
 
-      if (status === 'open') {
-        result = result.filter(function (t) { return !t.closed; });
-      } else if (status === 'closed') {
-        result = result.filter(function (t) { return t.closed; });
-      }
+    if (status === 'open')          result = result.filter(function (t) { return !t.closed; });
+    else if (status === 'closed')   result = result.filter(function (t) { return t.closed;  });
 
-      if (humanOnly === 'true') {
-        result = result.filter(function (t) { return t.humanRequested === true; });
-      }
+    if (humanOnly === 'true')       result = result.filter(function (t) { return t.humanRequested === true; });
 
-      if (search) {
-        var term = String(search).toLowerCase();
-        result   = result.filter(function (t) {
-          return (String(t.id       || '').toLowerCase().indexOf(term) !== -1) ||
-                 (String(t.email    || '').toLowerCase().indexOf(term) !== -1) ||
-                 (String(t.subject  || '').toLowerCase().indexOf(term) !== -1) ||
-                 (String(t.description || '').toLowerCase().indexOf(term) !== -1);
-        });
-      }
-
-      if (typeof result.sort === 'function') {
-        result.sort(function (a, b) {
-          return (b.timestamp || 0) - (a.timestamp || 0);
-        });
-      }
-
-      return res.status(200).json(result);
-    } catch (err) {
-      console.error('[GET /api/tickets]', err);
-      return res.status(500).json({ error: err.message });
+    if (search) {
+      var term = String(search).toLowerCase();
+      result   = result.filter(function (t) {
+        return (String(t.id          || '').toLowerCase().indexOf(term) !== -1) ||
+               (String(t.email       || '').toLowerCase().indexOf(term) !== -1) ||
+               (String(t.subject     || '').toLowerCase().indexOf(term) !== -1) ||
+               (String(t.description || '').toLowerCase().indexOf(term) !== -1);
+      });
     }
+
+    if (typeof result.sort === 'function') {
+      result.sort(function (a, b) { return (b.timestamp || 0) - (a.timestamp || 0); });
+    }
+
+    return res.status(200).json(result);
   }
 
-  // ── POST /api/tickets ──────────────────────────────────────────────────────
+  // ── POST ───────────────────────────────────────────────────────────────────
   if (req.method === 'POST') {
     try {
       var body = req.body || {};
@@ -78,49 +64,14 @@ module.exports = async function handler(req, res) {
         });
       }
 
-      var now   = timestamp || Date.now();
-      var human = humanRequested === true || humanRequested === 'true';
+      if (store[keyOf(id)]) return res.status(409).json({ error: 'A ticket with that ID already exists.' });
 
-      var ticket = {
-        id:               String(id),
-        email:            String(email).trim(),
-        subject:          String(subject),
-        description:      String(description),
-        status:           'open',
-        timestamp:        now,
-        humanRequested:   human,
-        initialMessage:   initialMessage || description,
-        conversation:     conversation || ('You: ' + description),
-        closed:           false,
-        closedAt:         null,
-        closedBy:         null,
-        lastReply:        null,
-        repliedAt:        null,
-        repliedBy:        null,
-        humanRequestedAt: human ? now : null,
-        claimedBy:        null,
-        claimedAt:        null,
-        responses:        [],
-      };
-
-      var records  = await db().list();
-      records      = records.filter(function (t) { return t && typeof t === 'object'; });
-      var exists   = records.some(function (t) {
-        return t && typeof t === 'object' && String(t.id).toLowerCase() === String(id).toLowerCase();
-      });
-      if (exists) {
-        return res.status(409).json({ error: 'A ticket with that ID already exists.' });
-      }
-
-      await db().save([ticket].concat(records));   // fire-and-forget, CDN flush runs in background
+      var ticket = create(body);
       return res.status(201).json(ticket);
     } catch (err) {
-      console.error('[POST /api/tickets]', err);
       return res.status(500).json({ error: err.message });
     }
   }
 
-  return res
-    .status(405)
-    .json({ error: 'Method not allowed. Use GET or POST.' });
+  return res.status(405).json({ error: 'Method not allowed. Use GET or POST.' });
 };
