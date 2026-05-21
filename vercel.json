@@ -8,7 +8,7 @@
   "routes": [
     {
       "src": "/api/tickets/(?<id>[^/]+)",
-      "dest": "/api/tickets/$id"
+      "dest": "/api/tickets/[id].js?id=$id"
     },
     {
       "src": "/api/tickets",

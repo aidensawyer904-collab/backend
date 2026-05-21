@@ -113,13 +113,6 @@ function makeSeed () {
 
 // ── public API ────────────────────────────────────────────────────────────────
 
-// callers that set __dbg in process.env trigger verbose logging on next list()
-// or save() call so we can diagnose jsonbin misconfiguration without redeploying.
-function _debugEnabled () {
-  return String(process.env.__DBG || '').length > 0;
-}
-───────────────────────
-
 /**
  * GET /v3/b/:binId?meta=false
  * Returns the records array directly with null entries stripped.
