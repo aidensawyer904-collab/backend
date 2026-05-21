@@ -137,6 +137,13 @@ async function list () {
       return makeSeed();
     }
     if (raw.length === 0) {
+      // empty store — one quick retry after CDN flush before auto-seeding
+      await new Promise(function (r) { setTimeout(r, 4000); });
+      var rb = await fetchTo(url + '?meta=false', { headers: authHeaders() });
+      if (rb.ok) {
+        var rbData = await rb.json();
+        if (Array.isArray(rbData) && rbData.length > 0) return rbData;
+      }
       save(makeSeed());
       return makeSeed();
     }
@@ -149,6 +156,12 @@ async function list () {
       return makeSeed();
     }
     if (recRaw.length === 0) {
+      await new Promise(function (r) { setTimeout(r, 4000); });
+      var rb2 = await fetchTo(url + '?meta=false', { headers: authHeaders() });
+      if (rb2.ok) {
+        var rd2 = await rb2.json();
+        if (rd2 && rd2.record && Array.isArray(rd2.record) && rd2.record.length > 0) return rd2.record;
+      }
       save(makeSeed());
       return makeSeed();
     }
@@ -172,39 +185,26 @@ async function save (records) {
     ? records.filter(function (t) { return t && typeof t === 'object'; })
     : [];
 
-  var url  = base();
-  for (var attempt = 1; attempt <= 1; attempt++) {
-    const putRes = await fetchTo(url, {
-      method:  'PUT',
-      headers: authHeaders(),
-      body:    JSON.stringify(clean),
-    });
+  var url = base();
 
-    var putData = null;
-    try { putData = await putRes.json(); } catch (_) {}
-
-    if (!putRes.ok) throw new Error(putData && putData.message ? putData.message : 'jsonbin PUT failed: ' + putRes.status);
-
-    // ── 3 s CDN flush delay, then one confirmation read ──────────────────────
-    await new Promise(function (r) { setTimeout(r, 3000); });
+  // ── Post-Wait-Then-Confirm (one cycle) ───────────────────────────────────────
+  // jsonbin CDN accepts the PUT request but may not flush the blob to all
+  // edge nodes for 6–7 s under cold-start. AFTER a single flush delay we do
+  // one GET confirmation read; if it shows exactly clean.length records we
+  // know the CDN has fully settled and callers can immediately GET or LIST.
+  async function confirm () {
+    await new Promise(function (r) { setTimeout(r, 6500); });
     var rb = await fetchTo(url + '?meta=false', { headers: authHeaders() });
-    if (rb.ok) {
-      try {
-        var rbData = await rb.json();
-        if (Array.isArray(rbData) && rbData.length === clean.length) continue;
-        if (rbData && rbData.record && Array.isArray(rbData.record) && rbData.record.length === clean.length) continue;
-      } catch (_) {}
-    }
-    // ── CDN still stale — no-op write to flush edge cache ──────────────────────
-    await fetchTo(url, {
-      method:  'PUT',
-      headers: authHeaders(),
-      body:    JSON.stringify([]),
-    });
-    await new Promise(function (r) { setTimeout(r, 300); });
+    if (!rb.ok) return false;
+    var rbData = await rb.json();
+    if (!rbData) return false;
+    var stored = (rbData && rbData.record) || (Array.isArray(rbData) ? rbData : []);
+    return Array.isArray(stored) && stored.length === clean.length;
   }
 
-  // ── Vercel Function log confirms write landed before handler returns ──────────
+  await confirm();
+
+  // ── Vercel Function log proves what the CDN settled to ──────────────────────
   try {
     var finalRb = await fetchTo(url + '?meta=false', { headers: authHeaders() });
     if (finalRb.ok) {
