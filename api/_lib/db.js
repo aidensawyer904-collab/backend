@@ -20,13 +20,15 @@ function apiKey () {
   return process.env.JSONBIN_API_KEY || '';
 }
 
-/** Headers for jsonbin READ requests — no-cache + pragma suppress CDN. */
+/** Headers for jsonbin READ requests — Vary: * prevents any CDN caching,
+ *  no-cache + pragma suppress shared cache. */
 function readHeaders () {
   return {
-    'Content-Type':  'application/json',
-    'X-Master-Key':  apiKey(),
-    'Cache-Control': 'no-cache',
-    'Pragma':        'no-cache',
+    'Content-Type':   'application/json',
+    'X-Master-Key':   apiKey(),
+    'Cache-Control':  'no-cache',
+    'Pragma':         'no-cache',
+    'Vary':           '*',
   };
 }
 
