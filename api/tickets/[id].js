@@ -35,6 +35,9 @@ module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Cache-Control', 'no-cache, no-store');
+  res.setHeader('Pragma',        'no-cache');
+  res.setHeader('Vary',          '*'); // Vercel Edge CDN must not share responses between envs
 
   // ── CORS preflight ─────────────────────────────────────────────────────────
   if (req.method === 'OPTIONS') return res.status(200).end();
