@@ -37,6 +37,11 @@ function base () {
   return 'https://api.jsonbin.io/v3/b/' + binId();
 }
 
+//  fetch-with-timeout: prevents Vercel serverless hanging on jsonbin cold-start
+function fetchTo (input, init) {
+  return globalThis.fetch(input, Object.assign({ signal: AbortSignal.timeout(8000) }, init));
+}
+
 // ── auto-seed data ───────────────────────────────────────────────────────────────
 
 /**
@@ -119,7 +124,7 @@ function makeSeed () {
  */
 async function list () {
   const url     = base() + '?meta=false';
-  const res     = await globalThis.fetch(url, { headers: authHeaders() });
+  const res     = await fetchTo(url, { headers: authHeaders() });
   const data    = await res.json();
 
   if (!res.ok) throw new Error(data.message || 'jsonbin GET failed: ' + res.status);
@@ -167,15 +172,6 @@ async function save (records) {
     ? records.filter(function (t) { return t && typeof t === 'object'; })
     : [];
 
-  // ── writing with a small post-write buffer to deep reconciliate jsonbin's
-  //     CDN write latency.  Vercel serverless functions can terminate before
-  //     the CDN blob lands on disk; this retry loop guarantees the write 
-  //     is visible on the next reader before save() returns to the caller.
-  // ── fetch-with-timeout helper ────────────────────────────────────────────────
-  var fetchTo = function (input, init) {
-    return globalThis.fetch(input, Object.assign({ signal: AbortSignal.timeout(8000) }, init));
-  };
-
   var url  = base();
   for (var attempt = 1; attempt <= 3; attempt++) {
     const putRes = await fetchTo(url, {
@@ -204,7 +200,7 @@ async function save (records) {
     if (ok) break;
 
     // CDN still stale — no-op write to bust the edge cache, wait, retry
-    await globalThis.fetch(url, {
+    await fetchTo(url, {
       method:  'PUT',
       headers: authHeaders(),
       body:    JSON.stringify([]),
