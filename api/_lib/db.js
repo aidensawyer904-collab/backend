@@ -173,7 +173,7 @@ async function save (records) {
     : [];
 
   var url  = base();
-  for (var attempt = 1; attempt <= 3; attempt++) {
+  for (var attempt = 1; attempt <= 1; attempt++) {
     const putRes = await fetchTo(url, {
       method:  'PUT',
       headers: authHeaders(),
@@ -185,27 +185,23 @@ async function save (records) {
 
     if (!putRes.ok) throw new Error(putData && putData.message ? putData.message : 'jsonbin PUT failed: ' + putRes.status);
 
-    // ── poll jsonbin to confirm N records visible on disk ──────────────────────
-    var ok = false;
-    for (var poll = 0; poll < 5; poll++) {
-      await new Promise(function (r) { setTimeout(r, 250); }); // let CDN flush first
-      var rb = await fetchTo(url + '?meta=false', { headers: authHeaders() });
-      if (rb.ok) {
-        var rbData = null;
-        try { rbData = await rb.json(); } catch (_) { rbData = null; }
-        if (Array.isArray(rbData) && rbData.length === clean.length) { ok = true; break; }
-        if (rbData && rbData.record && Array.isArray(rbData.record) && rbData.record.length === clean.length) { ok = true; break; }
-      }
+    // ── brief CDN flush delay, then one confirmation read ──────────────────────
+    await new Promise(function (r) { setTimeout(r, 300); });
+    var rb = await fetchTo(url + '?meta=false', { headers: authHeaders() });
+    if (rb.ok) {
+      try {
+        var rbData = await rb.json();
+        if (Array.isArray(rbData) && rbData.length === clean.length) continue;
+        if (rbData && rbData.record && Array.isArray(rbData.record) && rbData.record.length === clean.length) continue;
+      } catch (_) {}
     }
-    if (ok) break;
-
-    // CDN still stale — no-op write to bust the edge cache, wait, retry
+    // ── CDN still stale — no-op write to flush edge cache ──────────────────────
     await fetchTo(url, {
       method:  'PUT',
       headers: authHeaders(),
       body:    JSON.stringify([]),
     });
-    await new Promise(function (r) { setTimeout(r, 500); });
+    await new Promise(function (r) { setTimeout(r, 300); });
   }
 
   // ── Vercel Function log confirms write landed before handler returns ──────────
