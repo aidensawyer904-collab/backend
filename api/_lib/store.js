@@ -52,8 +52,8 @@ async function list() {
           : (data && Array.isArray(data.record)) ? data.record
           : [];
 
-  // strip nulls / non-objects
-  var clean = raw.filter(function(t) { return t && typeof t === 'object'; });
+  // strip nulls, non-objects, and the heal placeholder
+  var clean = raw.filter(function(t) { return t && typeof t === 'object' && !t._placeholder; });
 
   // if the bin was broken (e.g. [null]), heal it immediately
   if (clean.length !== raw.length) {
@@ -72,10 +72,12 @@ async function list() {
  */
 async function save(tickets) {
   var clean = Array.isArray(tickets)
-    ? tickets.filter(function(t) { return t && typeof t === 'object'; })
+    ? tickets.filter(function(t) { return t && typeof t === 'object' && !t._placeholder; })
     : [];
 
-  await _put(clean);
+  // JSONBin rejects empty arrays — keep a placeholder when there are no real tickets
+  var toWrite = clean.length > 0 ? clean : [{ _placeholder: true }];
+  await _put(toWrite);
   return clean;
 }
 
