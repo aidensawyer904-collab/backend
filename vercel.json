@@ -1,20 +1,14 @@
 {
   "version": 2,
+  "functions": {
+    "api/**/*.js": {
+      "includeFiles": "api/**"
+    }
+  },
   "routes": [
     {
-      "src": "/api/(.*)",
-      "methods": ["OPTIONS"],
-      "headers": {
-        "Access-Control-Allow-Origin": "https://verveutils.web.app",
-        "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type"
-      },
-      "continue": false,
-      "status": 204
-    },
-    {
-      "src": "/api/tickets/(?<id>[^/]+)",
-      "dest": "/api/tickets/[id].js?id=$id"
+      "src": "/api/tickets/(.*)",
+      "dest": "/api/tickets/[id].js"
     },
     {
       "src": "/api/tickets",

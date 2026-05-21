@@ -10,10 +10,11 @@ function db () {
 
 module.exports = async function handler(req, res) {
   // ── response headers (before anything else) ────────────────────────────────
-  res.setHeader('Content-Type',               'application/json');
-  res.setHeader('Access-Control-Allow-Origin',   'https://verveutils.web.app');
-  res.setHeader('Access-Control-Allow-Methods',  'GET, POST, PATCH, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers',  'Content-Type');
+  res.setHeader('Content-Type',              'application/json');
+  res.setHeader('Access-Control-Allow-Origin', 'https://verveutils.web.app');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
 
   // ── CORS preflight ─────────────────────────────────────────────────────────
   if (req.method === 'OPTIONS') return res.status(200).end();
