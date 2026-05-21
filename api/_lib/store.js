@@ -1,61 +1,139 @@
 'use strict';
 
-// ── shared in-memory store ──────────────────────────────────────────────────
-// Global (module-scope) object shared by [id].js and index.js via require().
-// Vercel keeps warm containers alive across requests so the same object
-// persists for the lifetime of that container instance.
+/**
+ * _lib/store.js — JSONBin v3 persistence layer.
+ * The bin stores a flat JSON array of ticket objects.
+ * All reads strip nulls. All writes strip nulls before PUT.
+ */
 
-function mk (raw) {
+// ── env helpers (read per-call — Vercel module cache safety) ─────────────────
+
+function binId()  { return process.env.JSONBIN_BIN_ID  || ''; }
+function apiKey() { return process.env.JSONBIN_API_KEY || ''; }
+
+function headers() {
   return {
-    id:               String(raw.id),
-    email:            String(raw.email).trim(),
-    subject:          String(raw.subject),
-    description:      String(raw.description),
-    status:           'open',
-    timestamp:        Math.floor(Date.now() / 1000),
-    humanRequested:   false,
-    initialMessage:   raw.initialMessage || raw.description || '',
-    conversation:     raw.conversation || ('You: ' + (raw.description || '')),
-    closed:           false,
-    closedAt:         null,
-    closedBy:         null,
-    lastReply:        null,
-    repliedAt:        null,
-    repliedBy:        null,
-    humanRequestedAt: null,
-    claimedBy:        null,
-    claimedAt:        null,
-    responses:        [],
+    'Content-Type':  'application/json',
+    'X-Master-Key':  apiKey(),
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    'Pragma':        'no-cache',
   };
 }
 
-var store = {};
-
-function add (raw) {
-  store[String(raw.id).replace(/-/g, '_')] = mk(raw);
+function baseUrl() {
+  return 'https://api.jsonbin.io/v3/b/' + binId();
 }
 
-function keyOf (id) { return String(id).toUpperCase().replace(/-/g, '_'); }
-
-function keys () { return Object.keys(store); }
-
-// ── seed ────────────────────────────────────────────────────────────────────
-
-function _seed () {
-  var sid = function (id) { store[keyOf(id)] = { id: id, email: 'seed@local', subject: 'seed', description: 'seed store', status: 'open', timestamp: Math.floor(Date.now() / 1000), humanRequested: false, initialMessage: 'seed', conversation: 'seed', closed: false, closedAt: null, closedBy: null, lastReply: null, repliedAt: null, repliedBy: null, humanRequestedAt: null, claimedBy: null, claimedAt: null, responses: [] }; };
-  sid('TE2ZZ6-TEC'); sid('1CMVXO-TEC'); sid('F6DQMK-DEB');
+function fetchTo(url, opts) {
+  return globalThis.fetch(url, Object.assign({ signal: AbortSignal.timeout(9000) }, opts));
 }
 
-_seed(); // run once at module load
+// ── seed ─────────────────────────────────────────────────────────────────────
 
-// ── helpers ───────────────────────────────────────────────────────────────
+function makeSeed() {
+  return [];   // start empty — no fake tickets
+}
 
-function normaliseConversation (value) {
+// ── core read ─────────────────────────────────────────────────────────────────
+
+/**
+ * Returns the array of tickets from JSONBin, with nulls stripped.
+ * If the bin contains only nulls or is empty, heals it to [] and returns [].
+ */
+async function list() {
+  var url = baseUrl() + '?meta=false';
+  var res = await fetchTo(url, { headers: headers() });
+  var data = await res.json();
+
+  if (!res.ok) throw new Error((data && data.message) || ('JSONBin GET failed: ' + res.status));
+
+  // JSONBin wraps in { record: [...] } or returns the array directly
+  var raw = Array.isArray(data) ? data
+          : (data && Array.isArray(data.record)) ? data.record
+          : [];
+
+  // strip nulls / non-objects
+  var clean = raw.filter(function(t) { return t && typeof t === 'object'; });
+
+  // if the bin was broken (e.g. [null]), heal it immediately
+  if (clean.length !== raw.length) {
+    await _put(clean);
+  }
+
+  return clean;
+}
+
+// ── core write ────────────────────────────────────────────────────────────────
+
+/**
+ * Writes the full tickets array to JSONBin synchronously.
+ * Strips nulls before writing.
+ * Returns the cleaned array.
+ */
+async function save(tickets) {
+  var clean = Array.isArray(tickets)
+    ? tickets.filter(function(t) { return t && typeof t === 'object'; })
+    : [];
+
+  await _put(clean);
+  return clean;
+}
+
+async function _put(records) {
+  var res = await fetchTo(baseUrl(), {
+    method:  'PUT',
+    headers: headers(),
+    body:    JSON.stringify(records),
+  });
+  if (!res.ok) {
+    var data = null;
+    try { data = await res.json(); } catch(_) {}
+    throw new Error((data && data.message) || ('JSONBin PUT failed: ' + res.status));
+  }
+  return res;
+}
+
+// ── ticket helpers ────────────────────────────────────────────────────────────
+
+async function findById(id) {
+  var tickets = await list();
+  return tickets.find(function(t) { return t && t.id === id; }) || null;
+}
+
+/**
+ * Patches a ticket by id with allowed fields.
+ * Returns the updated ticket, null if not found, or 'NOOP' if no valid fields.
+ */
+var PATCHABLE = ['closed','closedBy','lastReply','repliedBy','humanRequested','conversation','claimedBy'];
+
+async function patchById(id, body) {
+  var tickets = await list();
+  var idx = tickets.findIndex(function(t) { return t && t.id === id; });
+  if (idx === -1) return null;
+
+  var updates = {};
+  PATCHABLE.forEach(function(k) { if (k in body) updates[k] = body[k]; });
+  if (!Object.keys(updates).length) return 'NOOP';
+
+  tickets[idx] = Object.assign({}, tickets[idx], updates);
+  await save(tickets);
+  return tickets[idx];
+}
+
+// ── conversation normaliser ───────────────────────────────────────────────────
+
+/**
+ * Normalises conversation to a flat newline-delimited string.
+ * Array → "from: content\n..."
+ * String → trimmed
+ * else → ""
+ */
+function normaliseConversation(value) {
   if (Array.isArray(value)) {
     return value
-      .map(function (m) {
-        var from    = (m != null && typeof m.from    === 'string' && m.from    !== '') ? m.from    : '';
-        var content = (m != null && typeof m.content === 'string' && m.content !== '') ? m.content : '';
+      .map(function(m) {
+        var from    = (m && typeof m.from    === 'string') ? m.from    : '';
+        var content = (m && typeof m.content === 'string') ? m.content : '';
         if (from && content) return from + ': ' + content;
         return content || from;
       })
@@ -66,93 +144,4 @@ function normaliseConversation (value) {
   return '';
 }
 
-function listAll () {
-  return Object.values(store).filter(function (t) { return t && typeof t === 'object'; });
-}
-
-function findByKey (id) {
-  return store[keyOf(id)] || null;
-}
-
-function patchByKey (id, body) {
-  var key = keyOf(id);
-  if (!store[key]) return null;
-
-  var now    = Date.now();
-  var updated = Object.assign({}, store[key]);
-  var used   = false;
-
-  if (body.closed !== undefined) {
-    var coerce = function (v) { return v === true || v === 'true' || v === 1 || v === '1'; };
-    var val    = coerce(body.closed);
-    updated.closed          = val;
-    updated.status          = val ? 'closed' : 'open';
-    updated.closedAt        = val ? now : updated.closedAt;
-    if (val && body.closedBy) updated.closedBy = body.closedBy;
-    used = true;
-  }
-  if (body.lastReply !== undefined) {
-    updated.lastReply  = body.lastReply;
-    updated.repliedAt  = now;
-    if (body.repliedBy) updated.repliedBy = body.repliedBy;
-    var responses = Array.isArray(updated.responses) ? updated.responses : [];
-    updated.responses = responses.concat([{
-      from:       body.repliedBy || 'Staff',
-      reply:      body.lastReply,
-      timestamp:  now,
-    }]);
-    used = true;
-  }
-  if (body.humanRequested !== undefined) {
-    var coerce = function (v) { return v === true || v === 'true' || v === 1 || v === '1'; };
-    var val    = coerce(body.humanRequested);
-    updated.humanRequested   = val;
-    updated.humanRequestedAt = val ? (updated.humanRequestedAt || now) : updated.humanRequestedAt;
-    used = true;
-  }
-  if (body.conversation !== undefined) { updated.conversation = normaliseConversation(body.conversation); used = true; }
-  if (body.claimedBy !== undefined && body.claimedBy !== null && body.claimedBy !== '') {
-    updated.claimedBy = body.claimedBy; updated.claimedAt = now; used = true;
-  }
-
-  if (!used) return 'NOOP';
-
-  store[key] = updated;
-  return updated;
-}
-
-function create (body) {
-  var id    = String(body.id).replace(/-/g, '_');
-  var email = String(body.email).trim();
-  var now   = Math.floor(Date.now() / 1000);
-  var human = body.humanRequested === true || body.humanRequested === 'true';
-
-  store[keyOf(id)] = {
-    id:               String(body.id),
-    email:            email,
-    subject:          String(body.subject),
-    description:      String(body.description),
-    status:           'open',
-    timestamp:        now,
-    humanRequested:   human,
-    initialMessage:   body.initialMessage || body.description || '',
-    conversation:     body.conversation || ('You: ' + (body.description || '')),
-    closed:           false,
-    closedAt:         null,
-    closedBy:         null,
-    lastReply:        null,
-    repliedAt:        null,
-    repliedBy:        null,
-    humanRequestedAt: human ? now : null,
-    claimedBy:        null,
-    claimedAt:        null,
-    responses:        [],
-  };
-
-  return store[keyOf(id)];
-}
-
-module.exports = {
-  store, keyOf, normaliseConversation,
-  listAll, findByKey, patchByKey, create, _seed,
-};
+module.exports = { list, save, findById, patchById, normaliseConversation, PATCHABLE };
