@@ -23,7 +23,7 @@ module.exports = async function handler(req, res) {
     try {
       var records     = await db().list();
       var { status, humanOnly, search }   = req.query;
-      var result      = Array.isArray(records) ? records : [];
+      var result      = Array.isArray(records) ? records.filter(function(t){ return t && typeof t === 'object'; }) : [];
 
       if (status === 'open') {
         result = result.filter(function (t) { return !t.closed; });
@@ -100,7 +100,7 @@ module.exports = async function handler(req, res) {
 
       var records  = await db().list();
       var exists   = records.some(function (t) {
-        return String(t.id).toLowerCase() === String(id).toLowerCase();
+        return t && typeof t === 'object' && String(t.id).toLowerCase() === String(id).toLowerCase();
       });
       if (exists) {
         return res.status(409).json({ error: 'A ticket with that ID already exists.' });

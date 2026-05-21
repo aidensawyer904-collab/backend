@@ -74,6 +74,10 @@ module.exports = async function handler(req, res) {
   if (req.method === 'GET') {
     try {
       var records  = await db().list();
+
+      // PATCH needs a clean array — filter nulls defensively
+      records = (records || []).filter(function(t){ return t && typeof t === 'object'; });
+
       var ticket   = records.find(function (t) {
         return String(t.id).toLowerCase() === String(id).toLowerCase();
       });
@@ -96,6 +100,10 @@ module.exports = async function handler(req, res) {
   if (req.method === 'PATCH') {
     try {
       var records  = await db().list();
+
+      // PATCH needs a clean array — filter nulls defensively
+      records = (records || []).filter(function(t){ return t && typeof t === 'object'; });
+
       var idx     = records.findIndex(function (t) {
         return String(t.id).toLowerCase() === String(id).toLowerCase();
       });
