@@ -35,6 +35,80 @@ function base () {
   return 'https://api.jsonbin.io/v3/b/' + binId();
 }
 
+// ── auto-seed data ───────────────────────────────────────────────────────────────
+
+/**
+ * Returns the initial ticket set that is auto-written to jsonbin if the bin
+ * comes back empty on first read.
+ */
+function makeSeed () {
+  return [
+    {
+      id:               'TE2ZZ6-TEC',
+      email:            'alice@example.com',
+      subject:          'Subscription not activating',
+      description:      'Paid for Pro plan but account still shows Free tier.',
+      status:           'open',
+      timestamp:        Math.floor(Date.now() / 1000),
+      humanRequested:   false,
+      initialMessage:   'Paid for Pro plan but account still shows Free tier.',
+      conversation:     'You: Paid for Pro plan but account still shows Free tier.',
+      closed:           false,
+      closedAt:         null,
+      closedBy:         null,
+      lastReply:        null,
+      repliedAt:        null,
+      repliedBy:        null,
+      humanRequestedAt: null,
+      claimedBy:        null,
+      claimedAt:        null,
+      responses:        [],
+    },
+    {
+      id:               '1CMVXO-TEC',
+      email:            'bob@example.com',
+      subject:          'Cannot upload avatar',
+      description:      'Upload button does nothing on Chrome 131.',
+      status:           'open',
+      timestamp:        Math.floor(Date.now() / 1000),
+      humanRequested:   false,
+      initialMessage:   'Upload button does nothing on Chrome 131.',
+      conversation:     'You: Upload button does nothing on Chrome 131.',
+      closed:           false,
+      closedAt:         null,
+      closedBy:         null,
+      lastReply:        null,
+      repliedAt:        null,
+      repliedBy:        null,
+      humanRequestedAt: null,
+      claimedBy:        null,
+      claimedAt:        null,
+      responses:        [],
+    },
+    {
+      id:               'F6DQMK-DEB',
+      email:            'carol@example.com',
+      subject:          'Billing invoice missing',
+      description:      'Need a copy of the March invoice for expense report.',
+      status:           'open',
+      timestamp:        Math.floor(Date.now() / 1000),
+      humanRequested:   false,
+      initialMessage:   'Need a copy of the March invoice for expense report.',
+      conversation:     'You: Need a copy of the March invoice for expense report.',
+      closed:           false,
+      closedAt:         null,
+      closedBy:         null,
+      lastReply:        null,
+      repliedAt:        null,
+      repliedBy:        null,
+      humanRequestedAt: null,
+      claimedBy:        null,
+      claimedAt:        null,
+      responses:        [],
+    },
+  ];
+}
+
 // ── public API ────────────────────────────────────────────────────────────────
 
 /**
@@ -53,6 +127,12 @@ async function list () {
     if (raw.length === 0 && data.length > 0) {
       // ── bin contains only null/bad entries (e.g. "[null]") — heal it ─────────
       save([]);
+      return [];
+    }
+    if (raw.length === 0) {
+      // ── empty bin — auto-seed with sample tickets ──────────────────────────
+      save(makeSeed());
+      return makeSeed();
     }
     return raw;
   }
@@ -60,9 +140,16 @@ async function list () {
     var recRaw = data.record.filter(function (t) { return t && typeof t === 'object'; });
     if (recRaw.length === 0 && data.record.length > 0) {
       save([]);
+      return [];
+    }
+    if (recRaw.length === 0) {
+      save(makeSeed());
+      return makeSeed();
     }
     return recRaw;
   }
+  // ── unrecognised payload — write empty array and return ─────────────────────
+  save([]);
   return [];
 }
 
