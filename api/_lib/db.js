@@ -128,23 +128,26 @@ async function list () {
   const data    = await res.json();
 
   if (!res.ok) throw new Error(data.message || 'jsonbin GET failed: ' + res.status);
+  var binUrl = base();
 
   if (Array.isArray(data)) {
     var raw = data.filter(function (t) { return t && typeof t === 'object'; });
     if (raw.length === 0 && data.length > 0) {
-      // bin contained null entries — heal and seed
-      save(makeSeed());
+      // bin had null entries — heal + seed
+      await save(makeSeed());
+      await new Promise(function (r) { setTimeout(r, 6500); });
       return makeSeed();
     }
     if (raw.length === 0) {
-      // empty store — one quick retry after CDN flush before auto-seeding
-      await new Promise(function (r) { setTimeout(r, 4000); });
-      var rb = await fetchTo(url + '?meta=false', { headers: authHeaders() });
+      // empty bin — one retry after delay before seeding
+      await new Promise(function (r) { setTimeout(r, 6000); });
+      var rb = await fetchTo(binUrl + '?meta=false', { headers: authHeaders() });
       if (rb.ok) {
         var rbData = await rb.json();
         if (Array.isArray(rbData) && rbData.length > 0) return rbData;
       }
-      save(makeSeed());
+      await save(makeSeed());
+      await new Promise(function (r) { setTimeout(r, 6500); });
       return makeSeed();
     }
     return raw;
@@ -152,22 +155,26 @@ async function list () {
   if (data.record && Array.isArray(data.record)) {
     var recRaw = data.record.filter(function (t) { return t && typeof t === 'object'; });
     if (recRaw.length === 0 && data.record.length > 0) {
-      save(makeSeed());
+      await save(makeSeed());
+      await new Promise(function (r) { setTimeout(r, 6500); });
       return makeSeed();
     }
     if (recRaw.length === 0) {
-      await new Promise(function (r) { setTimeout(r, 4000); });
-      var rb2 = await fetchTo(url + '?meta=false', { headers: authHeaders() });
+      await new Promise(function (r) { setTimeout(r, 6000); });
+      var rb2 = await fetchTo(binUrl + '?meta=false', { headers: authHeaders() });
       if (rb2.ok) {
         var rd2 = await rb2.json();
         if (rd2 && rd2.record && Array.isArray(rd2.record) && rd2.record.length > 0) return rd2.record;
       }
-      save(makeSeed());
+      await save(makeSeed());
+      await new Promise(function (r) { setTimeout(r, 6500); });
       return makeSeed();
     }
     return recRaw;
   }
-  save(makeSeed());
+  // unrecognised payload — heal
+  await save(makeSeed());
+  await new Promise(function (r) { setTimeout(r, 6500); });
   return makeSeed();
 }
 
