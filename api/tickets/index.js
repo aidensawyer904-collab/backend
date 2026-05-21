@@ -112,17 +112,8 @@ module.exports = async function handler(req, res) {
         return res.status(409).json({ error: 'A ticket with that ID already exists.' });
       }
 
-      var savedOk = await db().save([ticket].concat(records));   // await + verify write persisted
-
-      // ── re-read using fresh list() so the response reflects what jsonbin
-      //     actually stored (not the unsaved in-memory object)
-      var fresh  = await db().list();
-      var created = Array.isArray(fresh)
-        ? fresh.find(function (t) { return t && String(t.id).toLowerCase() === String(ticket.id).toLowerCase(); })
-        : null;
-      var bodyOut = (created && typeof created === 'object') ? created : ticket;
-
-      return res.status(201).json(bodyOut);
+      await db().save([ticket].concat(records));   // fire-and-forget, CDN flush runs in background
+      return res.status(201).json(ticket);
     } catch (err) {
       console.error('[POST /api/tickets]', err);
       return res.status(500).json({ error: err.message });
