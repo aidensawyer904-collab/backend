@@ -54,8 +54,26 @@ module.exports = async function handler(req, res) {
 
   // ── GET /api/tickets ───────────────────────────────────────────────────────
   if (req.method === 'GET') {
-    var records = readAll();
-    var result  = records.filter(function (t) { return t && typeof t === 'object'; });
+    // extract id: query ?id=  first, then URL path last segment
+    var gid = req.query && req.query.id || (req.params && req.params.id);
+    if (!gid) {
+      var rUrl  = (req.url || req.path || '').split('?')[0];
+      var parts = rUrl.split('/').filter(Boolean);
+      gid = parts[parts.length - 1] || '';
+    }
+
+    // concrete ticket ID present → single-ticket endpoint
+    if (gid) {
+      var records = readAll();
+      var tkt     = records.find(function (t) { return t && String(t.id).toLowerCase() === String(gid).toLowerCase(); });
+      if (!tkt) return res.status(404).json({ error: 'Ticket not found.' });
+      var out = Object.assign({}, tkt);
+      out.conversation = normalise(out.conversation);
+      return res.status(200).json(out);
+    }
+
+    // no id → collection with optional filters
+    var result = records.filter(function (t) { return t && typeof t === 'object'; });
 
     var { status, humanOnly, search } = req.query;
 
@@ -78,10 +96,10 @@ module.exports = async function handler(req, res) {
       result.sort(function (a, b) { return (b.timestamp || 0) - (a.timestamp || 0); });
     }
 
-    return res.status(200).json(result);
-  }
+     return res.status(200).json(result);
+   }
 
-  // ── GET /api/tickets/:id ───────────────────────────────────────────────────
+  // ── GET /api/tickets/:id ────────────────────────────────────────────────────
   if (req.method === 'GET') {
     var id = req.query && req.query.id || (req.params && req.params.id);
     if (!id) {
