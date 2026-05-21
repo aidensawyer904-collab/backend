@@ -192,43 +192,42 @@ async function save (records) {
     ? records.filter(function (t) { return t && typeof t === 'object'; })
     : [];
 
-  var url = base();
-
-  // ── single PUT — fire and forget ────────────────────────────────────────────
-  // jsonbin's CDN may take 6–8 s to flush the blob under cold-start; callers
-  // that need confirmation (POST, PATCH) do it themselves via list() after.
-  // Keeping this path lean (≤ 8.5 s) means Vercel's free-tier 10 s function
-  // timeout is never reached even at peak jsonbin cold-start latency.
+  // ── fire-and-forget PUT ───────────────────────────────────────────────────────
+  // jsonbin may accept the HTTP connection but take ≥ 8 s to flush the blob
+  // under cold-start CDN latency.  Rather than blocking the caller (Vercel's
+  // free-tier maxTimeout is 10 s), we spawn the PUT as a detached microtask
+  // and return immediately.
   try {
-    const putRes = await fetchTo(url, {
-      method:  'PUT',
-      headers: authHeaders(),
-      body:    JSON.stringify(clean),
-    });
-    var putData = null;
-    try { putData = await putRes.json(); } catch (_) {}
-    if (!putRes.ok) throw new Error(putData && putData.message ? putData.message : 'jsonbin PUT failed: ' + putRes.status);
-
-    // ── 6.5 s flush + one CDN read-back (non-blocking fire-or-log) ──────────────
-    // Fire-and-forget: do the confirmation read-back best-effort so we get the
-    // count in Vercel function logs but don't await it (caller doesn't block).
     (async function () {
       try {
+        var putUrl = base();
+        var putRes = await fetchTo(putUrl, {
+          method:  'PUT',
+          headers: authHeaders(),
+          body:    JSON.stringify(clean),
+        });
+        var putData = null;
+        try { putData = await putRes.json(); } catch (_) {}
+        if (!putRes.ok) throw new Error(putData && putData.message ? putData.message : 'jsonbin PUT failed: ' + putRes.status);
+
+        // ── 6.5 s CDN flush delay → then non-blocking read-back log ─────────────
         await new Promise(function (r) { setTimeout(r, 6500); });
-        var rb = await fetchTo(url + '?meta=false', { headers: authHeaders() });
+        var rb = await fetchTo(putUrl + '?meta=false', { headers: authHeaders() });
         if (rb.ok) {
           var d2 = null;
           try { d2 = await rb.json(); } catch (_) {}
           if (d2) {
             var stored = (d2 && d2.record) || (Array.isArray(d2) ? d2 : []);
-            console.info('[save] confirmed:', stored.length,
-                         'records stored for bin', url.replace('https://api.jsonbin.io/v3/b/',''));
+            console.info('[save] confirmed:', Array.isArray(stored) ? stored.length : 0,
+                         'records stored for bin', putUrl.replace('https://api.jsonbin.io/v3/b/',''));
           }
         }
-      } catch (_) {}
+      } catch (err) {
+        console.error('[save] background write error:', err.message);
+      }
     })();
   } catch (err) {
-    console.error('[save] write error:', err.message);
+    console.error('[save] fire error:', err.message);
   }
 
   return records;
