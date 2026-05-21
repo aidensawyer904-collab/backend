@@ -52,7 +52,34 @@ module.exports = async function handler(req, res) {
   // ── POST ───────────────────────────────────────────────────────────────────
   if (req.method === 'POST') {
     try {
-      var body = req.body || {};
+      var raw = req.body;
+
+      // ── body fallback: Vercel doesn't always populate req.body for JSON POST ──
+      if (!raw || typeof raw !== 'object') {
+        try { raw = JSON.parse(req.body || '{}'); } catch (_) { raw = null; }
+      }
+      if (!raw || typeof raw !== 'object') {
+        try {
+          var chunks = [];
+          req.on('data', function (c) { chunks.push(c); });
+          req.on('end', function () {
+            try { raw = JSON.parse(Buffer.concat(chunks).toString()); } catch (_) {}
+          });
+        } catch (_) {}
+      }
+      var body = raw || {};
+
+      // ── DIAG ────────────────────────────────────────────────────────────────
+      if (!body.id || !body.email) {
+        return res.status(200).json({
+          _diag: true,
+          rawType: typeof req.body,
+          rawValue: String(req.body || '').substring(0, 80),
+          bodyKeys: Object.keys(body),
+          bodySample: { id: body.id, email: body.email, subject: body.subject },
+        });
+      }
+
       var {
         id, email, subject, description,
         humanRequested, initialMessage, conversation, timestamp,
