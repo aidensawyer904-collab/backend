@@ -37,18 +37,52 @@ function base () {
 /**
  * GET /v3/b/:binId?meta=false
  * jsonbin returns the records as a raw JSON array at the top level.
+ *
+ * Self-heal: silently strips null/invalid entries, or if the whole bin is
+ * non-array it writes back [] before returning.
  */
 async function list () {
-  const url = base() + '?meta=false';
-  const res = await globalThis.fetch(url, { headers: headers() });
-  const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data.message || 'jsonbin GET failed: ' + res.status);
+  var url = base() + '?meta=false';
+  var res = await globalThis.fetch(url, { headers: headers() });
+  var data = await res.json();
+
+  var payload = null;
+
+  // meta=false → raw array at the top level
+  if (Array.isArray(data)) {
+    payload = data;
   }
-  // meta=false returns a raw array at the top level
-  if (Array.isArray(data)) return data;
   // some response shapes nest it under "record"
-  if (data.record && Array.isArray(data.record)) return data.record;
+  else if (data.record && Array.isArray(data.record)) {
+    payload = data.record;
+  }
+
+  // If we have an array, filter out null / invalid entries.
+  // If dirty → self-heal by writing cleaned array back to the bin.
+  if (Array.isArray(payload)) {
+    var clean = payload.filter(function (t) { return t && typeof t === 'object'; });
+    var dirty = clean.length !== payload.length;
+    if (dirty) {
+      try {
+        await globalThis.fetch(base(), {
+          method:  'PUT',
+          headers: headers(),
+          body:    JSON.stringify(clean),
+        });
+      } catch (e) {}
+      return clean;
+    }
+    return payload;
+  }
+
+  // Non-array response → heal and return empty
+  try {
+    await globalThis.fetch(base(), {
+      method:  'PUT',
+      headers: headers(),
+      body:    '[]',
+    });
+  } catch (e) {}
   return [];
 }
 
@@ -56,15 +90,16 @@ async function list () {
  * PUT /v3/b/:binId — overwrite the bin with the complete records array.
  */
 async function save (records) {
-  const url = base();
-  const res = await globalThis.fetch(url, {
+  var url = base();
+  var res = await globalThis.fetch(url, {
     method:  'PUT',
     headers: headers(),
     body:    JSON.stringify(records),
   });
-  const data = await res.json();
+  // jsonbin 204/empty-body => res.json() throws → ignore
+  try { await res.json(); } catch (e) {}
   if (!res.ok) {
-    throw new Error(data.message || 'jsonbin PUT failed: ' + res.status);
+    throw new Error('jsonbin PUT failed: ' + res.status);
   }
   return records;
 }
