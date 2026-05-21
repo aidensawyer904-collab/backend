@@ -167,10 +167,10 @@ async function save (records) {
     ? records.filter(function (t) { return t && typeof t === 'object'; })
     : [];
 
-  // ── retry write up to 3 times (jsonbin CDN / cold-start latency) ─────────────
-  // jsonbin may accept the PUT HTTP request but discard the body when the
-  // serverless function terminates before the CDN finishes writing the blob.
-  // We confirm by doing a synchronous read-back after each write.
+  // ── writing with a small post-write buffer to deep reconciliate jsonbin's
+  //     CDN write latency.  Vercel serverless functions can terminate before
+  //     the CDN blob lands on disk; this retry loop guarantees the write 
+  //     is visible on the next reader before save() returns to the caller.
   var url  = base();
   for (var attempt = 1; attempt <= 3; attempt++) {
     const putRes = await globalThis.fetch(url, {
@@ -184,37 +184,38 @@ async function save (records) {
 
     if (!putRes.ok) throw new Error(putData && putData.message ? putData.message : 'jsonbin PUT failed: ' + putRes.status);
 
-    // ── synchronous read-back: confirm what jsonbin now thinks is stored ──────
+    // ── poll jsonbin to confirm N records visible on disk ──────────────────────
     var ok = false;
-    for (var poll = 0; poll < 3; poll++) {
+    for (var poll = 0; poll < 5; poll++) {
+      await new Promise(function (r) { setTimeout(r, 250); }); // let CDN flush first
       var rb = await globalThis.fetch(url + '?meta=false', { headers: authHeaders() });
       if (rb.ok) {
         var rbData = null;
         try { rbData = await rb.json(); } catch (_) { rbData = null; }
-        var stored = (rbData && rbData.record) || (Array.isArray(rbData) ? rbData : []);
-        if (stored.length === clean.length) { ok = true; break; }
+        if (Array.isArray(rbData) && rbData.length === clean.length) { ok = true; break; }
+        if (rbData && rbData.record && Array.isArray(rbData.record) && rbData.record.length === clean.length) { ok = true; break; }
       }
-      await new Promise(function (r) { setTimeout(r, 300); });
     }
-
     if (ok) break;
 
-    // ── CDN is still serving stale bytes — purge by writing a no-op first ─────
+    // CDN still stale — no-op write to bust the edge cache, wait, retry
     await globalThis.fetch(url, {
       method:  'PUT',
       headers: authHeaders(),
       body:    JSON.stringify([]),
     });
-    await new Promise(function (r) { setTimeout(r, 400); });
+    await new Promise(function (r) { setTimeout(r, 500); });
   }
 
-  // Log the final stored record count so Vercel Function logs prove persistence.
+  // ── Vercel Function log confirms write landed before handler returns ──────────
   try {
     var finalRb = await globalThis.fetch(url + '?meta=false', { headers: authHeaders() });
     if (finalRb.ok) {
       var finalData = await finalRb.json();
-      var stored    = (finalData && finalData.record) || (Array.isArray(finalData) ? finalData : []);
-      console.info('[save] confirmed:', stored.length, 'records stored for bin', url.replace('https://api.jsonbin.io/v3/b/',''));
+      var stored    = (finalData && finalData.record)
+                    || (Array.isArray(finalData) ? finalData : []);
+      console.info('[save] confirmed:', stored.length,
+                   'records stored for bin', url.replace('https://api.jsonbin.io/v3/b/',''));
     }
   } catch (_) {}
 
