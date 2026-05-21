@@ -21,9 +21,10 @@ module.exports = async function handler(req, res) {
   // ── GET /api/tickets ───────────────────────────────────────────────────────
   if (req.method === 'GET') {
     try {
-      var records     = await db().list();
-      var { status, humanOnly, search }   = req.query;
-      var result      = Array.isArray(records) ? records.filter(function(t){ return t && typeof t === 'object'; }) : [];
+      var all        = await db().list();
+      var result     = Array.isArray(all) ? all.filter(function (t) { return t && typeof t === 'object'; }) : [];
+
+      var { status, humanOnly, search } = req.query;
 
       if (status === 'open') {
         result = result.filter(function (t) { return !t.closed; });
@@ -85,7 +86,7 @@ module.exports = async function handler(req, res) {
         timestamp:        now,
         humanRequested:   human,
         initialMessage:   initialMessage || description,
-        conversation:     conversation || ('You: ' + description),    // Needs-an-array override — handled by migrate().passes in clean-room
+        conversation:     conversation || ('You: ' + description),
         closed:           false,
         closedAt:         null,
         closedBy:         null,
@@ -99,6 +100,7 @@ module.exports = async function handler(req, res) {
       };
 
       var records  = await db().list();
+      records      = records.filter(function (t) { return t && typeof t === 'object'; });
       var exists   = records.some(function (t) {
         return t && typeof t === 'object' && String(t.id).toLowerCase() === String(id).toLowerCase();
       });

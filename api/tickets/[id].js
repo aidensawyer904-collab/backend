@@ -2,23 +2,13 @@
 
 // ── db helper ─────────────────────────────────────────────────────────────────
 
-function db() {
-  // re-require on every call so fresh env vars are read per Vercel's spec
+function db () {
   return require('../_lib/db.js');
 }
 
 /**
- * Convert any conversation value — array of message objects, flat string, or
- * anything else — into a clean flat newline-delimited string.
- *
- * Ensures the frontend can always:
- *  - call String(ticket.conversation).length for change-detection
- *  - call ticket.conversation.split('\n')  to render messages
- *
- * Array shape stored in jsonbin by old versions:
- *   [{ from:String, content:String, timestamp:Number }, …]
- * Flat string shape required by the frontend:
- *   "from: content\nfrom: content"
+ * Normalise a conversation value — array of {from,content} objects or a flat
+ * string — into a clean flat newline-delimited string.
  */
 function normaliseConversation (value) {
   if (Array.isArray(value)) {
@@ -51,14 +41,21 @@ module.exports = async function handler(req, res) {
   // ── DEBUG ──────────────────────────────────────────────────────────────────
   if (req.query && req.query.id === 'debug') {
     try {
-      const records   = await db().list();
-      const binId     = process.env.JSONBIN_BIN_ID  || '';
-      const apiKey    = process.env.JSONBIN_API_KEY || '';
+      var lastErr = null;
+      var records = [];
+      for (var _i = 0; _i < 3; _i++) {
+        records = await db().list();
+        if (records.length > 0) break;
+        lastErr = new Error('empty');
+        await new Promise(function (r) { setTimeout(r, 500); });
+      }
+      var binId  = process.env.JSONBIN_BIN_ID  || '';
+      var apiKey = process.env.JSONBIN_API_KEY || '';
       return res.status(200).json({
-        count:    records.length,
-        ids:      records.map(function (t) { return t.id; }),
-        binId:    binId,
-        keySet:   apiKey.length > 0,
+        count:     records.length,
+        ids:       records.map(function (t) { return t && t.id; }),
+        binId:     binId,
+        keySet:    apiKey.length > 0,
         keyPrefix: apiKey.substring(0, 6),
       });
     } catch (err) {
@@ -67,28 +64,20 @@ module.exports = async function handler(req, res) {
     }
   }
 
-  const id = req.query && req.query.id;
+  var id = req.query && req.query.id;
   if (!id) return res.status(400).json({ error: 'Ticket ID is required.' });
 
   // ── GET /api/tickets/:id ───────────────────────────────────────────────────
   if (req.method === 'GET') {
     try {
-      var records  = await db().list();
+      var records = await db().list();
 
-      // PATCH needs a clean array — filter nulls defensively
-      records = (records || []).filter(function(t){ return t && typeof t === 'object'; });
-
-      var ticket   = records.find(function (t) {
+      var ticket = records.find(function (t) {
         return String(t.id).toLowerCase() === String(id).toLowerCase();
       });
       if (!ticket) return res.status(404).json({ error: 'Ticket not found.' });
+
       ticket.conversation = normaliseConversation(ticket.conversation);
-      // Auto-heal the record in jsonbin so this ticket is permanently fixed
-      var idx = records.findIndex(function (t) {
-        return String(t.id).toLowerCase() === String(id).toLowerCase();
-      });
-      if (idx !== -1) records[idx] = ticket;
-      await db().save(records);
       return res.status(200).json(ticket);
     } catch (err) {
       console.error('[GET /api/tickets/:id]', err);
@@ -99,12 +88,9 @@ module.exports = async function handler(req, res) {
   // ── PATCH /api/tickets/:id ────────────────────────────────────────────────
   if (req.method === 'PATCH') {
     try {
-      var records  = await db().list();
+      var records = await db().list();
 
-      // PATCH needs a clean array — filter nulls defensively
-      records = (records || []).filter(function(t){ return t && typeof t === 'object'; });
-
-      var idx     = records.findIndex(function (t) {
+      var idx = records.findIndex(function (t) {
         return String(t.id).toLowerCase() === String(id).toLowerCase();
       });
       if (idx === -1) return res.status(404).json({ error: 'Ticket not found.' });
@@ -123,10 +109,10 @@ module.exports = async function handler(req, res) {
         var coerce = function (v) {
           return v === true || v === 'true' || v === 1 || v === '1';
         };
-        var val              = coerce(closed);
-        updated.closed       = val;
-        updated.status       = val ? 'closed' : 'open';
-        updated.closedAt     = val ? now : updated.closedAt;
+        var val        = coerce(closed);
+        updated.closed = val;
+        updated.status = val ? 'closed' : 'open';
+        updated.closedAt = val ? now : updated.closedAt;
         if (val && closedBy) updated.closedBy = closedBy;
         used = true;
       }
@@ -151,13 +137,13 @@ module.exports = async function handler(req, res) {
         };
         var val                  = coerce(humanRequested);
         updated.humanRequested   = val;
-        updated.humanRequestedAt = val ? (updated.humanRequestedAt || now)
-                                       : updated.humanRequestedAt;
+        updated.humanRequestedAt = val
+          ? (updated.humanRequestedAt || now)
+          : updated.humanRequestedAt;
         used = true;
       }
 
       if (conversation !== undefined) {
-        // Normalise before ever touching jsonbin — accepts array, string, or object
         updated.conversation = normaliseConversation(conversation);
         used = true;
       }
@@ -175,7 +161,7 @@ module.exports = async function handler(req, res) {
       }
 
       records[idx] = updated;
-      await db().save(records);
+      db().update(records);
       return res.status(200).json(updated);
     } catch (err) {
       console.error('[PATCH /api/tickets/:id]', err);

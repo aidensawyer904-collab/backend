@@ -12,19 +12,30 @@
 
 // ── per-call env helpers ──────────────────────────────────────────────────────
 
-function binId() {
+function binId () {
   return process.env.JSONBIN_BIN_ID  || '';
 }
 
-function apiKey() {
+function apiKey () {
   return process.env.JSONBIN_API_KEY || '';
 }
 
-function headers() {
+/** Headers for jsonbin READ requests — no-cache + pragma suppress CDN. */
+function readHeaders () {
   return {
     'Content-Type':  'application/json',
     'X-Master-Key':  apiKey(),
     'Cache-Control': 'no-cache',
+    'Pragma':        'no-cache',
+  };
+}
+
+/** Headers for jsonbin WRITE requests — omit no-cache so the written ETag
+ *  becomes the live canonical response for subsequent reads. */
+function writeHeaders () {
+  return {
+    'Content-Type': 'application/json',
+    'X-Master-Key': apiKey(),
   };
 }
 
@@ -36,76 +47,65 @@ function base () {
 
 /**
  * GET /v3/b/:binId?meta=false
- * jsonbin returns the records as a raw JSON array at the top level.
+ * Returns the records array directly.  Never writes to jsonbin from this
+ * path — that was the cause of POST-vs-GET race conditions and 404s.
  *
- * Self-heal: silently strips null/invalid entries, or if the whole bin is
- * non-array it writes back [] before returning.
+ * null/invalid entries are stripped before returning so callers never see
+ * a crasher in their filter/find/map/sort chain.
  */
 async function list () {
-  var url = base() + '?meta=false';
-  var res = await globalThis.fetch(url, { headers: headers() });
-  var data = await res.json();
+  const url     = base() + '?meta=false';
+  const res     = await globalThis.fetch(url, { headers: readHeaders() });
+  const data    = await res.json();
 
-  var payload = null;
+  if (!res.ok) throw new Error(data.message || 'jsonbin GET failed: ' + res.status);
 
-  // meta=false → raw array at the top level
   if (Array.isArray(data)) {
-    payload = data;
+    return data.filter(function (t) { return t && typeof t === 'object'; });
   }
-  // some response shapes nest it under "record"
-  else if (data.record && Array.isArray(data.record)) {
-    payload = data.record;
+  if (data.record && Array.isArray(data.record)) {
+    return data.record.filter(function (t) { return t && typeof t === 'object'; });
   }
-
-  // If we have an array, filter out null / invalid entries.
-  // If dirty → self-heal by writing cleaned array back to the bin.
-  if (Array.isArray(payload)) {
-    var clean = payload.filter(function (t) { return t && typeof t === 'object'; });
-    var dirty = clean.length !== payload.length;
-    if (dirty) {
-      try {
-        await globalThis.fetch(base(), {
-          method:  'PUT',
-          headers: headers(),
-          body:    JSON.stringify(clean),
-        });
-      } catch (e) {}
-      return clean;
-    }
-    return payload;
-  }
-
-  // Non-array response → heal and return empty
-  try {
-    await globalThis.fetch(base(), {
-      method:  'PUT',
-      headers: headers(),
-      body:    '[]',
-    });
-  } catch (e) {}
   return [];
 }
 
 /**
- * PUT /v3/b/:binId — overwrite the bin with the complete records array.
+ * PUT /v3/b/:binId — authoritative write.
+ *
+ * After the PUT succeeds we do a single read-back (GET ?meta=false with
+ * no-cache headers).  That read-back is the value we return — not what
+ * jsonbin claimed to have saved, but what it IS serving right now.
+ *
+ * This eliminates thePOST-vs-GET race: every caller gets the live record set
+ * as viewed from a fresh, uncached read.
  */
 async function save (records) {
-  var url = base();
-  var res = await globalThis.fetch(url, {
+  const putUrl = base();
+  const putRes = await globalThis.fetch(putUrl, {
     method:  'PUT',
-    headers: headers(),
-    body:    JSON.stringify(records),
+    headers: writeHeaders(),
+    body:    JSON.stringify(Array.isArray(records) ? records : []),
   });
-  // jsonbin 204/empty-body => res.json() throws → ignore
-  try { await res.json(); } catch (e) {}
-  if (!res.ok) {
-    throw new Error('jsonbin PUT failed: ' + res.status);
-  }
-  return records;
+
+  // jsonbin 200 OK wraps the saved record in {record: […], metadata: {…}}
+  var putData = null;
+  try { putData = await putRes.json(); } catch (_) {}
+
+  if (!putRes.ok) throw new Error(putData && putData.message ? putData.message : 'jsonbin PUT failed: ' + putRes.status);
+
+  // ── Authoritative read-back ─────────────────────────────────────────────────
+  const getUrl  = base() + '?meta=false';
+  const getRes  = await globalThis.fetch(getUrl, { headers: readHeaders() });
+  const getData = await getRes.json();
+
+  if (!getRes.ok) throw new Error(getData.message || 'jsonbin read-back GET failed: ' + getRes.status);
+  if (Array.isArray(getData))  return getData;
+  if (getData.record && Array.isArray(getData.record)) return getData.record;
+  return records;  // absolute fallback — never crash the caller
 }
 
 /**
- * Alias for save() — kept for callers that reference update().
+ * Alias for save() — backward compatibility.
  */
 async function update (records) { return save(records); }
 
