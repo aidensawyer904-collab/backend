@@ -37,7 +37,7 @@ module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Credentials', 'true');
 
   // ── CORS preflight ─────────────────────────────────────────────────────────
-  if (req.method === 'OPTIONS') { return res.status(200).end(); }
+  if (req.method === 'OPTIONS') return res.status(200).end();
 
   // ── DEBUG ──────────────────────────────────────────────────────────────────
   if (req.query && req.query.id === 'debug') {
@@ -65,7 +65,7 @@ module.exports = async function handler(req, res) {
     }
   }
 
-  var id = req.query && req.query.id || (req.params && req.params.id);
+  var id = req.query && req.query.id || (req.params && req.params.id) || (req.params && req.params[0]);
   if (!id) return res.status(400).json({ error: 'Ticket ID is required.' });
 
   // ── GET /api/tickets/:id ───────────────────────────────────────────────────
