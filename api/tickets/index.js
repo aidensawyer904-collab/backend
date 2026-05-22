@@ -51,15 +51,23 @@ function resolveId (req) {
   try {
     var id = (req.query && req.query.id) || '';
     if (!id) {
+      // Vercel may or may not populate req.params for (.*) — probe it
       id = (req.params && req.params.id) || '';
       if (!id && req.params) {
-        // Vercel (.*) capture may expose index[0] instead of named .id
-        for (var i = 0; i < Object.keys(req.params).length; i++) {
-          var v = req.params[i];
-          if (v && v !== '' && v !== '/') { id = v; break; }
-        }
+        for (var k in req.params) { if (req.params[k]) { id = req.params[k]; break; } }
       }
     }
+    // final fallback: last non-empty path segment after /api/tickets
+    if (!id) {
+      var raw   = req.url || req.path || '';
+      var parts = raw.split('?')[0].split('/').filter(function(s){ return s.length > 0; });
+      if (parts.length > 2) id = parts[parts.length - 1];
+    }
+
+    if (!id) {
+      console.error('[resolveId] could not resolve id from', JSON.stringify({url: req.url, path: req.path, params: req.params, query: req.query}));
+    }
+
     return String(id);
   } catch (_) { return ''; }
 }
