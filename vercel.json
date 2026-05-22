@@ -2,7 +2,7 @@
   "version": 2,
   "routes": [
     {
-      "src": "/api/tickets/:id",
+      "src": "/api/tickets/([a-zA-Z0-9_-]+)",
       "dest": "/api/tickets/[id].js",
       "headers": {
         "Cache-Control": "no-store",
