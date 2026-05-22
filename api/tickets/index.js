@@ -1,8 +1,6 @@
 'use strict';
 
 // ── shared /tmp file store ────────────────────────────────────────────────
-// Reads/writes /tmp/verve_tickets.json so any Vercel function instance
-// (index.js or [id].js) that routes to this handler sees the same state.
 
 var fs   = require('fs');
 var path = '/tmp/verve_tickets.json';
@@ -38,9 +36,7 @@ function normalise (v) {
   return '';
 }
 
-// ── handler ───────────────────────────────────────────────────────────────
-
-module.exports = async function handler(req, res) {
+function setHeaders (res) {
   res.setHeader('Content-Type',              'application/json');
   res.setHeader('Access-Control-Allow-Origin',  'https://verveutils.web.app');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
@@ -49,75 +45,84 @@ module.exports = async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-cache, no-store');
   res.setHeader('Pragma',        'no-cache');
   res.setHeader('Vary',          '*');
+}
+
+function resolveId (req) {
+  try {
+    var id = (req.query && req.query.id) || '';
+    if (!id) id = (req.params && req.params.id) || '';
+    if (!id) {
+      var raw   = req.url || req.path || '';
+      var parts = raw.split('?')[0].split('/').filter(Boolean);
+      id = parts && parts.length ? parts[parts.length - 1] : '';
+    }
+    return String(id);
+  } catch (_) { return ''; }
+}
+
+function err (res, code, msg) { return res.status(code).json({ error: msg }); }
+function ok  (res, code, data) { return res.status(code).json(data); }
+
+// ── handler ───────────────────────────────────────────────────────────────
+
+module.exports = async function handler(req, res) {
+  setHeaders(res);
 
   if (req.method === 'OPTIONS') return res.status(200).end();
 
-  // ── GET /api/tickets ───────────────────────────────────────────────────────
+  // ── GET ────────────────────────────────────────────────────────────
   if (req.method === 'GET') {
-    // extract id: query ?id=  first, then URL path last segment
-    var gid = req.query && req.query.id || (req.params && req.params.id);
-    if (!gid) {
-      var rUrl  = (req.url || req.path || '').split('?')[0];
-      var parts = rUrl.split('/').filter(Boolean);
-      gid = parts[parts.length - 1] || '';
-    }
+    var id = resolveId(req);
 
-    // concrete ticket ID present → single-ticket endpoint
-    if (gid) {
-      var records = readAll();
-      var tkt     = records.find(function (t) { return t && String(t.id).toLowerCase() === String(gid).toLowerCase(); });
-      if (!tkt) return res.status(404).json({ error: 'Ticket not found.' });
-      var out = Object.assign({}, tkt);
-      out.conversation = normalise(out.conversation);
-      return res.status(200).json(out);
-    }
-
-    // no id → collection with optional filters
-    var records = readAll();
-    var result  = records.filter(function (t) { return t && typeof t === 'object'; });
-
-    var { status, humanOnly, search } = req.query;
-
-    if (status === 'open')          result = result.filter(function (t) { return !t.closed; });
-    else if (status === 'closed')   result = result.filter(function (t) { return t.closed;  });
-
-    if (humanOnly === 'true')       result = result.filter(function (t) { return t.humanRequested === true; });
-
-    if (search) {
-      var term = String(search).toLowerCase();
-      result   = result.filter(function (t) {
-        return (String(t.id          || '').toLowerCase().indexOf(term) !== -1) ||
-               (String(t.email       || '').toLowerCase().indexOf(term) !== -1) ||
-               (String(t.subject     || '').toLowerCase().indexOf(term) !== -1) ||
-               (String(t.description || '').toLowerCase().indexOf(term) !== -1);
-      });
-    }
-
-    if (typeof result.sort === 'function') {
-      result.sort(function (a, b) { return (b.timestamp || 0) - (a.timestamp || 0); });
-    }
-
-     return res.status(200).json(result);
-   }
-
-  // ── GET /api/tickets/:id ────────────────────────────────────────────────────
-  if (req.method === 'GET') {
-    var id = req.query && req.query.id || (req.params && req.params.id);
+    // debug endpoint — only when path IS /api/tickets (not /api/tickets/:id)
     if (!id) {
-      var rawUrl = req.url || '';
-      var stripped = rawUrl.split('?')[0];
-      var parts = stripped.split('/').filter(Boolean);
-      id = parts[parts.length - 1] || '';
+      if ((req.query && req.query.debug) === 'true') {
+        return ok(res, 200, {
+          src   : 'file',
+          store : '/tmp/verve_tickets.json',
+          node  : process.version,
+          ts    : Date.now(),
+          seed  : 'TE2ZZ6-TEC,1CMVXO-TEC,F6DQMK-DEB',
+        });
+      }
+      // ── collection ────────────────────────────────────────────────
+      var records = readAll();
+      var result  = records.filter(function (t) { return t && typeof t === 'object'; });
+
+      var { status, humanOnly, search } = req.query;
+
+      if (status === 'open')          result = result.filter(function (t) { return !t.closed; });
+      else if (status === 'closed')   result = result.filter(function (t) { return t.closed;  });
+
+      if (humanOnly === 'true')       result = result.filter(function (t) { return t.humanRequested === true; });
+
+      if (search) {
+        var term = String(search).toLowerCase();
+        result   = result.filter(function (t) {
+          return (String(t.id          || '').toLowerCase().indexOf(term) !== -1) ||
+                 (String(t.email       || '').toLowerCase().indexOf(term) !== -1) ||
+                 (String(t.subject     || '').toLowerCase().indexOf(term) !== -1) ||
+                 (String(t.description || '').toLowerCase().indexOf(term) !== -1);
+        });
+      }
+
+      if (typeof result.sort === 'function') {
+        result.sort(function (a, b) { return (b.timestamp || 0) - (a.timestamp || 0); });
+      }
+
+      return ok(res, 200, result);
     }
-    var all     = readAll();
-    var ticket  = all.find(function (t) { return t && String(t.id).toLowerCase() === String(id).toLowerCase(); });
-    if (!ticket) return res.status(404).json({ error: 'Ticket not found.' });
+
+    // ── single ticket ───────────────────────────────────────────────
+    var all    = readAll();
+    var ticket = all.find(function (t) { return t && String(t.id).toLowerCase() === String(id).toLowerCase(); });
+    if (!ticket) return err(res, 404, 'Ticket not found.');
     var out = Object.assign({}, ticket);
     out.conversation = normalise(out.conversation);
-    return res.status(200).json(out);
+    return ok(res, 200, out);
   }
 
-  // ── POST /api/tickets ──────────────────────────────────────────────────────
+  // ── POST ─────────────────────────────────────────────────────────
   if (req.method === 'POST') {
     try {
       var body = req.body || {};
@@ -127,7 +132,7 @@ module.exports = async function handler(req, res) {
       } = body;
 
       if (!id || !email || !subject || !description) {
-        return res.status(400).json({ error: 'id, email, subject, and description are required.' });
+        return err(res, 400, 'id, email, subject, and description are required.');
       }
 
       var now   = timestamp || Math.floor(Date.now() / 1000);
@@ -159,15 +164,70 @@ module.exports = async function handler(req, res) {
       var exists  = records.some(function (t) {
         return t && String(t.id).toLowerCase() === String(id).toLowerCase();
       });
-      if (exists) return res.status(409).json({ error: 'A ticket with that ID already exists.' });
+      if (exists) return err(res, 409, 'A ticket with that ID already exists.');
 
       writeAll([ticket].concat(records));
-      return res.status(201).json(ticket);
+      return ok(res, 201, ticket);
     } catch (err) {
       console.error('[POST]', err);
-      return res.status(500).json({ error: err.message });
+      return err(res, 500, err.message);
     }
   }
 
-  return res.status(405).json({ error: 'Method not allowed. Use GET, POST, or PATCH.' });
+  // ── PATCH ────────────────────────────────────────────────────────
+  if (req.method === 'PATCH') {
+    var pid = resolveId(req);
+    if (!pid) return err(res, 400, 'Ticket ID is required.');
+
+    try {
+      var all    = readAll();
+      var idx    = all.findIndex(function (t) { return t && String(t.id).toLowerCase() === String(pid).toLowerCase(); });
+      if (idx === -1) return err(res, 404, 'Ticket not found.');
+
+      var upd  = Object.assign({}, all[idx]);
+      var used = false;
+      var body  = req.body || {};
+
+      if (body.closed !== undefined) {
+        var v         = body.closed === true || body.closed === 'true' || body.closed === 1 || body.closed === '1';
+        upd.closed    = v;
+        upd.closedAt  = v ? Date.now() : upd.closedAt;
+        upd.closedBy  = v && body.closedBy ? body.closedBy : upd.closedBy;
+        used = true;
+      }
+
+      if (body.lastReply !== undefined) {
+        upd.lastReply  = body.lastReply;
+        upd.repliedAt  = Date.now();
+        upd.repliedBy  = body.repliedBy || upd.repliedBy;
+        var prev       = Array.isArray(upd.responses) ? upd.responses.slice() : [];
+        upd.responses  = prev.concat([{ from: body.repliedBy || 'Staff', reply: body.lastReply, timestamp: Date.now() }]);
+        used = true;
+      }
+
+      if (body.claimedBy !== undefined) { upd.claimedBy = body.claimedBy; used = true; }
+      if (body.typingBy  !== undefined) { upd.typingBy  = body.typingBy;  used = true; }
+
+      if (body.humanRequested !== undefined) {
+        var hv            = body.humanRequested === true || body.humanRequested === 'true' || body.humanRequested === 1 || body.humanRequested === '1';
+        upd.humanRequested   = hv;
+        upd.humanRequestedAt = hv ? Date.now() : upd.humanRequestedAt;
+        used = true;
+      }
+
+      if (body.conversation !== undefined) { upd.conversation = body.conversation; used = true; }
+
+      if (!used) {
+        return err(res, 400, 'No valid fields. Allowed: closed, lastReply, humanRequested, claimedBy, typingBy, conversation.');
+      }
+
+      all[idx] = upd;
+      writeAll(all);
+      return ok(res, 200, upd);
+    } catch (e) {
+      return err(res, 500, e.message || String(e));
+    }
+  }
+
+  return err(res, 405, 'Method not allowed. Use GET, POST, or PATCH.');
 };
