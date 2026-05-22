@@ -25,8 +25,24 @@ function base() {
   return 'https://api.jsonbin.io/v3/b/' + binId();
 }
 
+function fetchSignal(timeoutMs) {
+  if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
+    return AbortSignal.timeout(timeoutMs);
+  }
+  if (typeof AbortController !== 'undefined') {
+    var ctrl = new AbortController();
+    setTimeout(function() { ctrl.abort(); }, timeoutMs);
+    return ctrl.signal;
+  }
+  return undefined;
+}
+
 function fetchTo(input, init) {
-  return globalThis.fetch(input, Object.assign({ signal: AbortSignal.timeout(8000) }, init));
+  var signal = fetchSignal(8000);
+  if (signal !== undefined) {
+    init = Object.assign({}, init, { signal: signal });
+  }
+  return globalThis.fetch(input, init);
 }
 
 async function list() {

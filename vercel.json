@@ -1,21 +1,40 @@
 {
   "version": 2,
-  "functions": {
-    "api/**/*.js": {
-      "includeFiles": "api/**",
-      "maxDuration": 30
+  "builds": [
+    {
+      "src": "api/**/*.js",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": "api/**",
+        "maxDuration": 30,
+        "runtime": "nodejs18.x"
+      }
     }
-  },
+  ],
   "routes": [
     {
       "src": "/api/tickets/:id",
       "dest": "/api/tickets/[id].js",
-      "headers": { "Cache-Control": "no-store" }
+      "headers": {
+        "Cache-Control": "no-store",
+        "Access-Control-Allow-Origin": "https://verveutils.web.app",
+        "Access-Control-Allow-Methods": "GET, PATCH, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, X-Master-Key",
+        "Access-Control-Allow-Credentials": "true",
+        "Vary": "Origin"
+      }
     },
     {
       "src": "/api/tickets",
       "dest": "/api/tickets/index.js",
-      "headers": { "Cache-Control": "no-store" }
+      "headers": {
+        "Cache-Control": "no-store",
+        "Access-Control-Allow-Origin": "https://verveutils.web.app",
+        "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+        "Access-Control-Allow-Credentials": "true",
+        "Vary": "Origin"
+      }
     }
   ]
 }

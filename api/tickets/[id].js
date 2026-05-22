@@ -1,8 +1,8 @@
 'use strict';
 
-const db = require('./_lib/db.js');
+var db = require('./_lib/db.js');
 
-const ALLOWED_ORIGINS = [
+var ALLOWED_ORIGINS = [
   'https://verveutils.web.app',
   'https://backend-five-pink-62.vercel.app',
   'http://localhost:5500',
@@ -10,11 +10,10 @@ const ALLOWED_ORIGINS = [
 ];
 
 function setCors(req, res) {
-  const origin = req.headers.origin;
-  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+  var origin = req.headers && req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.indexOf(origin) !== -1) {
     res.setHeader('Access-Control-Allow-Origin', origin);
   } else {
-    // fallback so preflight never hard-fails
     res.setHeader('Access-Control-Allow-Origin', 'https://verveutils.web.app');
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, PATCH, OPTIONS');
@@ -27,24 +26,26 @@ function setJson(res) {
   res.setHeader('Content-Type', 'application/json');
 }
 
+function resolveId(req) {
+  var id = (req.query && req.query.id) || '';
+  if (!id) {
+    var raw   = req.url || '';
+    var parts = raw.split('?')[0].split('/').filter(Boolean);
+    id = parts[parts.length - 1] || '';
+  }
+  return id;
+}
+
 module.exports = async function handler(req, res) {
   // CORS must be the very first thing — before ANY early return
   setCors(req, res);
   setJson(res);
 
   if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
+    return res.status(200).end();
   }
 
-  // resolve id — Vercel injects [id] segment into req.query.id automatically
-  // also support path-based fallback in case of proxy rewriting
-  let id = (req.query && req.query.id) || '';
-  if (!id) {
-    const raw   = req.url || '';
-    const parts = raw.split('?')[0].split('/').filter(Boolean);
-    id = parts[parts.length - 1] || '';
-  }
+  var id = resolveId(req);
 
   if (!id) {
     return res.status(400).json({ error: 'Ticket ID is required.' });
@@ -53,8 +54,8 @@ module.exports = async function handler(req, res) {
   // ── GET ──────────────────────────────────────────────────────────────────────
   if (req.method === 'GET') {
     try {
-      const all    = await db.list();
-      const ticket = all.find(t => String(t.id).toLowerCase() === String(id).toLowerCase());
+      var all    = await db.list();
+      var ticket = all.find(function(t) { return t && String(t.id).toLowerCase() === String(id).toLowerCase(); });
       if (!ticket) {
         return res.status(404).json({ error: 'Ticket not found.' });
       }
@@ -68,26 +69,26 @@ module.exports = async function handler(req, res) {
   // ── PATCH ────────────────────────────────────────────────────────────────────
   if (req.method === 'PATCH') {
     try {
-      const body      = req.body || {};
-      const closed    = body.closed;
-      const lastReply = body.lastReply;
-      const repliedBy = body.repliedBy;
-      const closedBy  = body.closedBy;
-      const humanReq  = body.humanRequested;
-      const claimedBy = body.claimedBy;
-      const typingBy  = body.typingBy;
+      var body      = req.body || {};
+      var closed    = body.closed;
+      var lastReply = body.lastReply;
+      var repliedBy = body.repliedBy;
+      var closedBy  = body.closedBy;
+      var humanReq  = body.humanRequested;
+      var claimedBy = body.claimedBy;
+      var typingBy  = body.typingBy;
 
-      const all = await db.list();
-      const idx = all.findIndex(t => String(t.id).toLowerCase() === String(id).toLowerCase());
+      var all = await db.list();
+      var idx = all.findIndex(function(t) { return t && String(t.id).toLowerCase() === String(id).toLowerCase(); });
       if (idx === -1) {
         return res.status(404).json({ error: 'Ticket not found.' });
       }
 
-      const updated = { ...all[idx] };
-      let used = false;
+      var updated = Object.assign({}, all[idx]);
+      var used    = false;
 
       if (closed !== undefined) {
-        const val        = closed === true || closed === 'true' || closed === 1 || closed === '1';
+        var val        = closed === true || closed === 'true' || closed === 1 || closed === '1';
         updated.closed   = val;
         updated.closedAt = val ? Date.now() : updated.closedAt;
         updated.closedBy = val && closedBy ? closedBy : updated.closedBy;
@@ -98,9 +99,9 @@ module.exports = async function handler(req, res) {
         updated.lastReply  = lastReply;
         updated.repliedAt  = Date.now();
         updated.repliedBy  = repliedBy || updated.repliedBy;
-        const responses    = Array.isArray(updated.responses) ? updated.responses : [];
+        var responses    = Array.isArray(updated.responses) ? updated.responses : [];
         updated.responses  = [
-          ...responses,
+          responses.slice(),
           { from: repliedBy || 'Staff', reply: lastReply, timestamp: Date.now() },
         ];
         used = true;
@@ -117,7 +118,7 @@ module.exports = async function handler(req, res) {
       }
 
       if (humanReq !== undefined) {
-        const val                = humanReq === true || humanReq === 'true' || humanReq === 1 || humanReq === '1';
+        var val        = humanReq === true || humanReq === 'true' || humanReq === 1 || humanReq === '1';
         updated.humanRequested   = val;
         updated.humanRequestedAt = val ? Date.now() : updated.humanRequestedAt;
         used = true;
@@ -129,8 +130,8 @@ module.exports = async function handler(req, res) {
         });
       }
 
-      const next = [...all];
-      next[idx]  = updated;
+      var next         = all.slice();
+      next[idx]        = updated;
       await db.save(next);
 
       return res.status(200).json(updated);
