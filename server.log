@@ -1,0 +1,17 @@
+<anonymous_script>:9
+  writeAll([
+  ^
+
+ReferenceError: writeAll is not defined
+    at eval (eval at loadHandler (/workspaces/backend/test-server.js:12:19), <anonymous>:9:3)
+    at eval (eval at loadHandler (/workspaces/backend/test-server.js:12:19), <anonymous>:15:3)
+    at loadHandler (/workspaces/backend/test-server.js:14:3)
+    at Object.<anonymous> (/workspaces/backend/test-server.js:20:21)
+    at Module._compile (node:internal/modules/cjs/loader:1812:14)
+    at Object..js (node:internal/modules/cjs/loader:1943:10)
+    at Module.load (node:internal/modules/cjs/loader:1533:32)
+    at Module._load (node:internal/modules/cjs/loader:1335:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:255:19)
+    at Module.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:154:5)
+
+Node.js v24.14.0

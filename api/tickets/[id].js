@@ -1,21 +1,49 @@
 'use strict';
 
-var _st                  = require('../_lib/store.js');
-var list                 = _st.list;
-var save                 = _st.save;
-var findById             = _st.findById;
-var patchById            = _st.patchById;
-var normaliseConversation = _st.normaliseConversation;
-var PATCHABLE            = _st.PATCHABLE;
+var fs   = require('fs');
+var path = '/tmp/verve_tickets.json';
+
+function readAll () {
+  try { return JSON.parse(fs.readFileSync(path, 'utf8')); } catch (_) { return []; }
+}
+function writeAll (records) {
+  try { fs.writeFileSync(path, JSON.stringify(Array.isArray(records) ? records : [])); } catch (_) {}
+}
+
+// seed on first read (idempotent)
+(function () {
+  try {
+    var raw = JSON.parse(fs.readFileSync(path, 'utf8'));
+    if (Array.isArray(raw) && raw.length > 0) return;
+  } catch (_) {}
+  writeAll([
+    { id: 'LW3Y94-TEC', email: 'user@example.com', subject: 'Test ticket', description: 'Test description', status: 'open', timestamp: Math.floor(Date.now() / 1000), humanRequested: false, initialMessage: 'Test description', conversation: 'You: Test description', closed: false, closedAt: null, closedBy: null, lastReply: null, repliedAt: null, repliedBy: null, humanRequestedAt: null, claimedBy: null, claimedAt: null, responses: [] },
+    { id: 'TE2ZZ6-TEC', email: 'alice@example.com', subject: 'Subscription not activating',    description: 'Paid for Pro plan but account still shows Free tier.',   status: 'open', timestamp: Math.floor(Date.now() / 1000), humanRequested: false, initialMessage: 'Paid for Pro plan but account still shows Free tier.',   conversation: 'You: Paid for Pro plan but account still shows Free tier.',   closed: false, closedAt: null, closedBy: null, lastReply: null, repliedAt: null, repliedBy: null, humanRequestedAt: null, claimedBy: null, claimedAt: null, responses: [] },
+    { id: '1CMVXO-TEC', email: 'bob@example.com',   subject: 'Cannot upload avatar',          description: 'Upload button does nothing on Chrome 131.',             status: 'open', timestamp: Math.floor(Date.now() / 1000), humanRequested: false, initialMessage: 'Upload button does nothing on Chrome 131.',             conversation: 'You: Upload button does nothing on Chrome 131.',             closed: false, closedAt: null, closedBy: null, lastReply: null, repliedAt: null, repliedBy: null, humanRequestedAt: null, claimedBy: null, claimedAt: null, responses: [] },
+    { id: 'F6DQMK-DEB', email: 'carol@example.com', subject: 'Billing invoice missing',      description: 'Need a copy of the March invoice for expense report.',  status: 'open', timestamp: Math.floor(Date.now() / 1000), humanRequested: false, initialMessage: 'Need a copy of the March invoice for expense report.',   conversation: 'You: Need a copy of the March invoice for expense report.',   closed: false, closedAt: null, closedBy: null, lastReply: null, repliedAt: null, repliedBy: null, humanRequestedAt: null, claimedBy: null, claimedAt: null, responses: [] },
+  ]);
+})();
+
+function normalise (v) {
+  if (Array.isArray(v)) return v.map(function (m) {
+    var from    = (m != null && typeof m.from    === 'string' && m.from    !== '') ? m.from    : '';
+    var content = (m != null && typeof m.content === 'string' && m.content !== '') ? m.content : '';
+    if (from && content) return from + ': ' + content;
+    return content || from;
+  }).filter(Boolean).join('\n');
+  if (typeof v === 'string') return v.trim();
+  return '';
+}
 
 module.exports = async function handler(req, res) {
-  res.setHeader('Content-Type',                'application/json');
+  res.setHeader('Content-Type',              'application/json');
   res.setHeader('Access-Control-Allow-Origin',  'https://verveutils.web.app');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Credentials','true');
   res.setHeader('Cache-Control', 'no-cache, no-store');
   res.setHeader('Pragma',        'no-cache');
+  res.setHeader('Vary',          '*');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
 
@@ -27,44 +55,41 @@ module.exports = async function handler(req, res) {
     id = parts[parts.length - 1] || '';
   }
 
-  // ── debug ───────────────────────────────────────────────────────────────────
-  if (id === 'debug') {
-    try {
-      var tickets = await list();
-      return res.status(200).json({
-        count: tickets.length,
-        ids:   tickets.map(function(t) { return t && t.id; }),
-        mode:  'jsonbin',
-      });
-    } catch (err) {
-      return res.status(500).json({ error: 'Debug failed: ' + err.message });
-    }
-  }
-
   if (!id) return res.status(400).json({ error: 'Ticket ID is required.' });
 
   // ── GET ──────────────────────────────────────────────────────────────────────
   if (req.method === 'GET') {
-    try {
-      var ticket = await findById(id);
-      if (!ticket) return res.status(404).json({ error: 'Ticket not found.' });
-      var out = Object.assign({}, ticket);
-      out.conversation = normaliseConversation(out.conversation);
-      return res.status(200).json(out);
-    } catch (err) {
-      return res.status(500).json({ error: 'Failed to fetch ticket: ' + err.message });
-    }
+    var records = readAll();
+    var ticket  = records.find(function (t) { return t && String(t.id).toLowerCase() === String(id).toLowerCase(); });
+    if (!ticket) return res.status(404).json({ error: 'Ticket not found.' });
+    var out = Object.assign({}, ticket);
+    out.conversation = normalise(out.conversation);
+    return res.status(200).json(out);
   }
 
   // ── PATCH ────────────────────────────────────────────────────────────────────
   if (req.method === 'PATCH') {
     try {
-      var result = await patchById(id, req.body || {});
-      if (result === null)   return res.status(404).json({ error: 'Ticket not found.' });
-      if (result === 'NOOP') return res.status(400).json({
-        error: 'No valid fields to update. Allowed: ' + PATCHABLE.join(', ') + '.',
-      });
-      return res.status(200).json(result);
+      var body = req.body || {};
+      var records = readAll();
+      var idx = records.findIndex(function(t) { return t && String(t.id).toLowerCase() === String(id).toLowerCase(); });
+      if (idx === -1) return res.status(404).json({ error: 'Ticket not found.' });
+
+      var ticket = records[idx];
+      var updates = {};
+      var allowed = ['closed','closedBy','lastReply','repliedBy','humanRequested','conversation','claimedBy'];
+      
+      allowed.forEach(function(k) { if (k in body) updates[k] = body[k]; });
+      
+      if (!Object.keys(updates).length) {
+        return res.status(400).json({
+          error: 'No valid fields to update. Allowed: ' + allowed.join(', ') + '.',
+        });
+      }
+
+      records[idx] = Object.assign({}, ticket, updates);
+      writeAll(records);
+      return res.status(200).json(records[idx]);
     } catch (err) {
       return res.status(500).json({ error: 'Failed to patch ticket: ' + err.message });
     }
