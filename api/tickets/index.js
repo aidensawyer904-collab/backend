@@ -19,9 +19,9 @@ function writeAll (records) {
     if (Array.isArray(raw) && raw.length > 0) return;
   } catch (_) {}
   writeAll([
-    { id: 'TE2ZZ6-TEC', email: 'alice@example.com', subject: 'Subscription not activating',    description: 'Paid for Pro plan but account still shows Free tier.',   status: 'open', timestamp: Math.floor(Date.now() / 1000), humanRequested: false, initialMessage: 'Paid for Pro plan but account still shows Free tier.',   conversation: 'You: Paid for Pro plan but account still shows Free tier.',   closed: false, closedAt: null, closedBy: null, lastReply: null, repliedAt: null, repliedBy: null, humanRequestedAt: null, claimedBy: null, claimedAt: null, responses: [] },
-    { id: '1CMVXO-TEC', email: 'bob@example.com',   subject: 'Cannot upload avatar',          description: 'Upload button does nothing on Chrome 131.',             status: 'open', timestamp: Math.floor(Date.now() / 1000), humanRequested: false, initialMessage: 'Upload button does nothing on Chrome 131.',             conversation: 'You: Upload button does nothing on Chrome 131.',             closed: false, closedAt: null, closedBy: null, lastReply: null, repliedAt: null, repliedBy: null, humanRequestedAt: null, claimedBy: null, claimedAt: null, responses: [] },
-    { id: 'F6DQMK-DEB', email: 'carol@example.com', subject: 'Billing invoice missing',      description: 'Need a copy of the March invoice for expense report.',  status: 'open', timestamp: Math.floor(Date.now() / 1000), humanRequested: false, initialMessage: 'Need a copy of the March invoice for expense report.',   conversation: 'You: Need a copy of the March invoice for expense report.',   closed: false, closedAt: null, closedBy: null, lastReply: null, repliedAt: null, repliedBy: null, humanRequestedAt: null, claimedBy: null, claimedAt: null, responses: [] },
+    { _layoutBuild: 'v1', id: 'TE2ZZ6-TEC', email: 'alice@example.com', subject: 'Subscription not activating',    description: 'Paid for Pro plan but account still shows Free tier.',   status: 'open', timestamp: Math.floor(Date.now() / 1000), humanRequested: false, initialMessage: 'Paid for Pro plan but account still shows Free tier.',   conversation: 'You: Paid for Pro plan but account still shows Free tier.',   closed: false, closedAt: null, closedBy: null, lastReply: null, repliedAt: null, repliedBy: null, humanRequestedAt: null, claimedBy: null, claimedAt: null, responses: [] },
+    { _layoutBuild: 'v1', id: '1CMVXO-TEC', email: 'bob@example.com',   subject: 'Cannot upload avatar',          description: 'Upload button does nothing on Chrome 131.',             status: 'open', timestamp: Math.floor(Date.now() / 1000), humanRequested: false, initialMessage: 'Upload button does nothing on Chrome 131.',             conversation: 'You: Upload button does nothing on Chrome 131.',             closed: false, closedAt: null, closedBy: null, lastReply: null, repliedAt: null, repliedBy: null, humanRequestedAt: null, claimedBy: null, claimedAt: null, responses: [] },
+    { _layoutBuild: 'v1', id: 'F6DQMK-DEB', email: 'carol@example.com', subject: 'Billing invoice missing',      description: 'Need a copy of the March invoice for expense report.',  status: 'open', timestamp: Math.floor(Date.now() / 1000), humanRequested: false, initialMessage: 'Need a copy of the March invoice for expense report.',   conversation: 'You: Need a copy of the March invoice for expense report.',   closed: false, closedAt: null, closedBy: null, lastReply: null, repliedAt: null, repliedBy: null, humanRequestedAt: null, claimedBy: null, claimedAt: null, responses: [] },
   ]);
 })();
 
@@ -52,9 +52,8 @@ function resolveId (req) {
     var id = (req.query && req.query.id) || '';
     if (!id) id = (req.params && req.params.id) || '';
     if (!id) {
-      var raw   = req.url || req.path || '';
-      var parts = raw.split('?')[0].split('/').filter(Boolean);
-      id = parts && parts.length ? parts[parts.length - 1] : '';
+      var index = req.params && Array.isArray(req.params) ? 0 : null;
+      id = (index !== null && typeof req.params[index] === 'string' && req.params[index]) || '';
     }
     return String(id);
   } catch (_) { return ''; }
@@ -87,6 +86,7 @@ module.exports = async function handler(req, res) {
       }
       // ── collection ────────────────────────────────────────────────
       var records = readAll();
+      console.error('[GET-collection] records=', Array.isArray(records) ? records.length : 'n/a', 'first:', records[0] && records[0].id);
       var result  = records.filter(function (t) { return t && typeof t === 'object'; });
 
       var { status, humanOnly, search } = req.query;
