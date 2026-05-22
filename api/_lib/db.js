@@ -1,18 +1,6 @@
 'use strict';
 
-/**
- * jsonbin.io v3 REST client.
- *
- * ── WHY env vars are read per-call ──────────────────────────────────────────
- * Vercel serverless functions warm-start on reused containers. If env vars are
- * read once at module load time the module is cached and the values never
- * refresh — even if Vercel later injects the correct values. Reading inside
- * each function ensures the current process.env is consulted on every request.
- */
-
 const EMPTY_STATE = [{ _placeholder: true, _note: 'bin initialised — no tickets yet' }];
-
-// ── per-call env helpers ─────────────────────────────────────────────────────
 
 function binId() {
   return process.env.JSONBIN_BIN_ID || '';
@@ -41,12 +29,6 @@ function fetchTo(input, init) {
   return globalThis.fetch(input, Object.assign({ signal: AbortSignal.timeout(8000) }, init));
 }
 
-// ── public API ───────────────────────────────────────────────────────────────
-
-/**
- * GET /v3/b/:binId?meta=false
- * Returns real ticket records only — placeholder entries are stripped.
- */
 async function list() {
   const url  = base() + '?meta=false';
   const res  = await fetchTo(url, { headers: authHeaders() });
@@ -58,23 +40,16 @@ async function list() {
     ? data
     : (data.record && Array.isArray(data.record) ? data.record : []);
 
-  // Strip placeholder entries and null/non-object entries
   return source.filter(function (t) {
     return t && typeof t === 'object' && !t._placeholder;
   });
 }
 
-/**
- * PUT /v3/b/:binId — authoritative write.
- * Strips placeholders and nulls before writing.
- * If no real tickets remain, writes EMPTY_STATE so JSONBin never gets [].
- */
 async function save(records) {
   const clean = Array.isArray(records)
     ? records.filter(function (t) { return t && typeof t === 'object' && !t._placeholder; })
     : [];
 
-  // JSONBin won't accept [] — use placeholder when no real tickets exist
   const body = clean.length > 0 ? clean : EMPTY_STATE;
 
   try {
@@ -90,7 +65,6 @@ async function save(records) {
         try { putData = await putRes.json(); } catch (_) {}
         if (!putRes.ok) throw new Error(putData && putData.message ? putData.message : 'jsonbin PUT failed: ' + putRes.status);
 
-        // 6.5 s CDN flush delay → then non-blocking read-back log
         await new Promise(function (r) { setTimeout(r, 6500); });
         const rb = await fetchTo(putUrl + '?meta=false', { headers: authHeaders() });
         if (rb.ok) {
@@ -113,20 +87,8 @@ async function save(records) {
   return clean;
 }
 
-/**
- * Alias for save() — backward compatibility.
- */
 async function update(records) { return save(records); }
 
-/**
- * Normalise a conversation value from any shape to a flat newline-delimited
- * string so the frontend can safely use String().length for change-detection
- * and split('\n') for rendering.
- *
- *  Array  →  "from: content\nfrom: content"
- *  String →  trimmed string
- *  else   →  ""
- */
 function normaliseConversation(value) {
   if (Array.isArray(value)) {
     return value

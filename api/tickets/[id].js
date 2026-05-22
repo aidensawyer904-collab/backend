@@ -13,9 +13,14 @@ function setCors(req, res) {
   const origin = req.headers.origin;
   if (origin && ALLOWED_ORIGINS.includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    // fallback so preflight never hard-fails
+    res.setHeader('Access-Control-Allow-Origin', 'https://verveutils.web.app');
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET, PATCH, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Master-Key');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Vary', 'Origin');
 }
 
 function setJson(res) {
@@ -23,37 +28,48 @@ function setJson(res) {
 }
 
 module.exports = async function handler(req, res) {
+  // CORS must be the very first thing — before ANY early return
   setCors(req, res);
-  if (req.method === 'OPTIONS') { res.status(200).end(); return; }
+  setJson(res);
 
-  const id = req.query && req.query.id;
-  if (!id) {
-    setJson(res);
-    return res.status(400).json({ error: 'Ticket ID is required in ?id= query param.' });
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
   }
 
+  // resolve id — Vercel injects [id] segment into req.query.id automatically
+  // also support path-based fallback in case of proxy rewriting
+  let id = (req.query && req.query.id) || '';
+  if (!id) {
+    const raw   = req.url || '';
+    const parts = raw.split('?')[0].split('/').filter(Boolean);
+    id = parts[parts.length - 1] || '';
+  }
+
+  if (!id) {
+    return res.status(400).json({ error: 'Ticket ID is required.' });
+  }
+
+  // ── GET ──────────────────────────────────────────────────────────────────────
   if (req.method === 'GET') {
     try {
       const all    = await db.list();
       const ticket = all.find(t => String(t.id).toLowerCase() === String(id).toLowerCase());
       if (!ticket) {
-        setJson(res);
         return res.status(404).json({ error: 'Ticket not found.' });
       }
-      setJson(res);
-      res.status(200).json(ticket);
+      return res.status(200).json(ticket);
     } catch (err) {
       console.error('[ticket GET]', err);
-      setJson(res);
-      res.status(500).json({ error: err.message });
+      return res.status(500).json({ error: err.message });
     }
-    return;
   }
 
+  // ── PATCH ────────────────────────────────────────────────────────────────────
   if (req.method === 'PATCH') {
     try {
-      const body     = req.body;
-      const closed   = body.closed;
+      const body      = req.body || {};
+      const closed    = body.closed;
       const lastReply = body.lastReply;
       const repliedBy = body.repliedBy;
       const closedBy  = body.closedBy;
@@ -64,7 +80,6 @@ module.exports = async function handler(req, res) {
       const all = await db.list();
       const idx = all.findIndex(t => String(t.id).toLowerCase() === String(id).toLowerCase());
       if (idx === -1) {
-        setJson(res);
         return res.status(404).json({ error: 'Ticket not found.' });
       }
 
@@ -72,7 +87,7 @@ module.exports = async function handler(req, res) {
       let used = false;
 
       if (closed !== undefined) {
-        const val = closed === true || closed === 'true' || closed === 1 || closed === '1';
+        const val        = closed === true || closed === 'true' || closed === 1 || closed === '1';
         updated.closed   = val;
         updated.closedAt = val ? Date.now() : updated.closedAt;
         updated.closedBy = val && closedBy ? closedBy : updated.closedBy;
@@ -80,11 +95,11 @@ module.exports = async function handler(req, res) {
       }
 
       if (lastReply !== undefined) {
-        updated.lastReply = lastReply;
-        updated.repliedAt = Date.now();
-        updated.repliedBy = repliedBy || updated.repliedBy;
-        const responses = Array.isArray(updated.responses) ? updated.responses : [];
-        updated.responses = [
+        updated.lastReply  = lastReply;
+        updated.repliedAt  = Date.now();
+        updated.repliedBy  = repliedBy || updated.repliedBy;
+        const responses    = Array.isArray(updated.responses) ? updated.responses : [];
+        updated.responses  = [
           ...responses,
           { from: repliedBy || 'Staff', reply: lastReply, timestamp: Date.now() },
         ];
@@ -102,14 +117,13 @@ module.exports = async function handler(req, res) {
       }
 
       if (humanReq !== undefined) {
-        const val = humanReq === true || humanReq === 'true' || humanReq === 1 || humanReq === '1';
+        const val                = humanReq === true || humanReq === 'true' || humanReq === 1 || humanReq === '1';
         updated.humanRequested   = val;
         updated.humanRequestedAt = val ? Date.now() : updated.humanRequestedAt;
         used = true;
       }
 
       if (!used) {
-        setJson(res);
         return res.status(400).json({
           error: 'No valid fields to update. Allowed: closed, lastReply, humanRequested, claimedBy, typingBy.',
         });
@@ -119,16 +133,12 @@ module.exports = async function handler(req, res) {
       next[idx]  = updated;
       await db.save(next);
 
-      setJson(res);
-      res.status(200).json(updated);
+      return res.status(200).json(updated);
     } catch (err) {
       console.error('[ticket PATCH]', err);
-      setJson(res);
-      res.status(500).json({ error: err.message });
+      return res.status(500).json({ error: err.message });
     }
-    return;
   }
 
-  setJson(res);
-  res.status(405).json({ error: 'Method not allowed. Use GET or PATCH.' });
+  return res.status(405).json({ error: 'Method not allowed. Use GET or PATCH.' });
 };
