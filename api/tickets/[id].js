@@ -1,99 +1,134 @@
 'use strict';
 
-var fs   = require('fs');
-var path = '/tmp/verve_tickets.json';
+const db = require('./_lib/db.js');
 
-function readAll () {
-  try { return JSON.parse(fs.readFileSync(path, 'utf8')); } catch (_) { return []; }
+const ALLOWED_ORIGINS = [
+  'https://verveutils.web.app',
+  'https://backend-five-pink-62.vercel.app',
+  'http://localhost:5500',
+  'http://localhost:8000',
+];
+
+function setCors(req, res) {
+  const origin = req.headers.origin;
+  if (origin && ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, PATCH, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Master-Key');
 }
-function writeAll (records) {
-  try { fs.writeFileSync(path, JSON.stringify(Array.isArray(records) ? records : [])); } catch (_) {}
-}
 
-// seed on first read (idempotent)
-(function () {
-  try {
-    var raw = JSON.parse(fs.readFileSync(path, 'utf8'));
-    if (Array.isArray(raw) && raw.length > 0) return;
-  } catch (_) {}
-  writeAll([
-    { id: 'LW3Y94-TEC', email: 'user@example.com', subject: 'Test ticket', description: 'Test description', status: 'open', timestamp: Math.floor(Date.now() / 1000), humanRequested: false, initialMessage: 'Test description', conversation: 'You: Test description', closed: false, closedAt: null, closedBy: null, lastReply: null, repliedAt: null, repliedBy: null, humanRequestedAt: null, claimedBy: null, claimedAt: null, responses: [] },
-    { id: 'TE2ZZ6-TEC', email: 'alice@example.com', subject: 'Subscription not activating',    description: 'Paid for Pro plan but account still shows Free tier.',   status: 'open', timestamp: Math.floor(Date.now() / 1000), humanRequested: false, initialMessage: 'Paid for Pro plan but account still shows Free tier.',   conversation: 'You: Paid for Pro plan but account still shows Free tier.',   closed: false, closedAt: null, closedBy: null, lastReply: null, repliedAt: null, repliedBy: null, humanRequestedAt: null, claimedBy: null, claimedAt: null, responses: [] },
-    { id: '1CMVXO-TEC', email: 'bob@example.com',   subject: 'Cannot upload avatar',          description: 'Upload button does nothing on Chrome 131.',             status: 'open', timestamp: Math.floor(Date.now() / 1000), humanRequested: false, initialMessage: 'Upload button does nothing on Chrome 131.',             conversation: 'You: Upload button does nothing on Chrome 131.',             closed: false, closedAt: null, closedBy: null, lastReply: null, repliedAt: null, repliedBy: null, humanRequestedAt: null, claimedBy: null, claimedAt: null, responses: [] },
-    { id: 'F6DQMK-DEB', email: 'carol@example.com', subject: 'Billing invoice missing',      description: 'Need a copy of the March invoice for expense report.',  status: 'open', timestamp: Math.floor(Date.now() / 1000), humanRequested: false, initialMessage: 'Need a copy of the March invoice for expense report.',   conversation: 'You: Need a copy of the March invoice for expense report.',   closed: false, closedAt: null, closedBy: null, lastReply: null, repliedAt: null, repliedBy: null, humanRequestedAt: null, claimedBy: null, claimedAt: null, responses: [] },
-  ]);
-})();
-
-function normalise (v) {
-  if (Array.isArray(v)) return v.map(function (m) {
-    var from    = (m != null && typeof m.from    === 'string' && m.from    !== '') ? m.from    : '';
-    var content = (m != null && typeof m.content === 'string' && m.content !== '') ? m.content : '';
-    if (from && content) return from + ': ' + content;
-    return content || from;
-  }).filter(Boolean).join('\n');
-  if (typeof v === 'string') return v.trim();
-  return '';
+function setJson(res) {
+  res.setHeader('Content-Type', 'application/json');
 }
 
 module.exports = async function handler(req, res) {
-  res.setHeader('Content-Type',              'application/json');
-  res.setHeader('Access-Control-Allow-Origin',  'https://verveutils.web.app');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.setHeader('Access-Control-Allow-Credentials','true');
-  res.setHeader('Cache-Control', 'no-cache, no-store');
-  res.setHeader('Pragma',        'no-cache');
-  res.setHeader('Vary',          '*');
+  setCors(req, res);
+  if (req.method === 'OPTIONS') { res.status(200).end(); return; }
 
-  if (req.method === 'OPTIONS') return res.status(200).end();
-
-  // ── resolve id ──────────────────────────────────────────────────────────────
-  var id = (req.query && req.query.id) || (req.params && req.params.id) || '';
+  const id = req.query && req.query.id;
   if (!id) {
-    var raw   = req.url || '';
-    var parts = raw.split('?')[0].split('/').filter(Boolean);
-    id = parts[parts.length - 1] || '';
+    setJson(res);
+    return res.status(400).json({ error: 'Ticket ID is required in ?id= query param.' });
   }
 
-  if (!id) return res.status(400).json({ error: 'Ticket ID is required.' });
-
-  // ── GET ──────────────────────────────────────────────────────────────────────
   if (req.method === 'GET') {
-    var records = readAll();
-    var ticket  = records.find(function (t) { return t && String(t.id).toLowerCase() === String(id).toLowerCase(); });
-    if (!ticket) return res.status(404).json({ error: 'Ticket not found.' });
-    var out = Object.assign({}, ticket);
-    out.conversation = normalise(out.conversation);
-    return res.status(200).json(out);
+    try {
+      const all    = await db.list();
+      const ticket = all.find(t => String(t.id).toLowerCase() === String(id).toLowerCase());
+      if (!ticket) {
+        setJson(res);
+        return res.status(404).json({ error: 'Ticket not found.' });
+      }
+      setJson(res);
+      res.status(200).json(ticket);
+    } catch (err) {
+      console.error('[ticket GET]', err);
+      setJson(res);
+      res.status(500).json({ error: err.message });
+    }
+    return;
   }
 
-  // ── PATCH ────────────────────────────────────────────────────────────────────
   if (req.method === 'PATCH') {
     try {
-      var body = req.body || {};
-      var records = readAll();
-      var idx = records.findIndex(function(t) { return t && String(t.id).toLowerCase() === String(id).toLowerCase(); });
-      if (idx === -1) return res.status(404).json({ error: 'Ticket not found.' });
+      const body     = req.body;
+      const closed   = body.closed;
+      const lastReply = body.lastReply;
+      const repliedBy = body.repliedBy;
+      const closedBy  = body.closedBy;
+      const humanReq  = body.humanRequested;
+      const claimedBy = body.claimedBy;
+      const typingBy  = body.typingBy;
 
-      var ticket = records[idx];
-      var updates = {};
-      var allowed = ['closed','closedBy','lastReply','repliedBy','humanRequested','conversation','claimedBy'];
-      
-      allowed.forEach(function(k) { if (k in body) updates[k] = body[k]; });
-      
-      if (!Object.keys(updates).length) {
+      const all = await db.list();
+      const idx = all.findIndex(t => String(t.id).toLowerCase() === String(id).toLowerCase());
+      if (idx === -1) {
+        setJson(res);
+        return res.status(404).json({ error: 'Ticket not found.' });
+      }
+
+      const updated = { ...all[idx] };
+      let used = false;
+
+      if (closed !== undefined) {
+        const val = closed === true || closed === 'true' || closed === 1 || closed === '1';
+        updated.closed   = val;
+        updated.closedAt = val ? Date.now() : updated.closedAt;
+        updated.closedBy = val && closedBy ? closedBy : updated.closedBy;
+        used = true;
+      }
+
+      if (lastReply !== undefined) {
+        updated.lastReply = lastReply;
+        updated.repliedAt = Date.now();
+        updated.repliedBy = repliedBy || updated.repliedBy;
+        const responses = Array.isArray(updated.responses) ? updated.responses : [];
+        updated.responses = [
+          ...responses,
+          { from: repliedBy || 'Staff', reply: lastReply, timestamp: Date.now() },
+        ];
+        used = true;
+      }
+
+      if (claimedBy !== undefined) {
+        updated.claimedBy = claimedBy;
+        used = true;
+      }
+
+      if (typingBy !== undefined) {
+        updated.typingBy = typingBy;
+        used = true;
+      }
+
+      if (humanReq !== undefined) {
+        const val = humanReq === true || humanReq === 'true' || humanReq === 1 || humanReq === '1';
+        updated.humanRequested   = val;
+        updated.humanRequestedAt = val ? Date.now() : updated.humanRequestedAt;
+        used = true;
+      }
+
+      if (!used) {
+        setJson(res);
         return res.status(400).json({
-          error: 'No valid fields to update. Allowed: ' + allowed.join(', ') + '.',
+          error: 'No valid fields to update. Allowed: closed, lastReply, humanRequested, claimedBy, typingBy.',
         });
       }
 
-      records[idx] = Object.assign({}, ticket, updates);
-      writeAll(records);
-      return res.status(200).json(records[idx]);
+      const next = [...all];
+      next[idx]  = updated;
+      await db.save(next);
+
+      setJson(res);
+      res.status(200).json(updated);
     } catch (err) {
-      return res.status(500).json({ error: 'Failed to patch ticket: ' + err.message });
+      console.error('[ticket PATCH]', err);
+      setJson(res);
+      res.status(500).json({ error: err.message });
     }
+    return;
   }
 
-  return res.status(405).json({ error: 'Method not allowed. Use GET or PATCH.' });
+  setJson(res);
+  res.status(405).json({ error: 'Method not allowed. Use GET or PATCH.' });
 };
