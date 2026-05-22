@@ -73,7 +73,8 @@ module.exports = async function handler(req, res) {
     }
 
     // no id → collection with optional filters
-    var result = records.filter(function (t) { return t && typeof t === 'object'; });
+    var records = readAll();
+    var result  = records.filter(function (t) { return t && typeof t === 'object'; });
 
     var { status, humanOnly, search } = req.query;
 

@@ -1,172 +1,194 @@
 'use strict';
 
-// ── HARD RESET: wrap everything in a safety net so Vercel never sees
-//   an unhandled exception from this file, no matter what fails.
+// ─────────── Outermost safety net (captures any crash at module-load time) ────
 try {
-  module.exports = (function() {
-    var db;
-    try { db = require('./_lib/db.js'); } catch (_) { db = null; }
 
-    var ALLOWED_ORIGINS = [
-      'https://verveutils.web.app',
-      'https://backend-five-pink-62.vercel.app',
-      'http://localhost:5500',
-      'http://localhost:8000',
-    ];
+// db.js is only imported inside the try so a require failure never kills this file
+var _db;
+try { _db = require('./_lib/db.js'); } catch (_e) { _db = null; }
 
-    function originOk(origin) {
-      return origin && ALLOWED_ORIGINS.indexOf(origin) !== -1;
+var ALLOWED_ORIGINS = [
+  'https://verveutils.web.app',
+  'https://backend-five-pink-62.vercel.app',
+  'http://localhost:5500',
+  'http://localhost:8000',
+];
+
+function originOk(origin) {
+  return origin && ALLOWED_ORIGINS.indexOf(origin) !== -1;
+}
+
+// ────── CORS ──────────────────────────────────────────────────────────────────
+
+function setCors(req, res) {
+  var origin = req.headers && req.headers.origin;
+  if (originOk(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', 'https://verveutils.web.app');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, PATCH, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Master-Key');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Vary', 'Origin');
+}
+
+function setJson(res) {
+  try { res.setHeader('Content-Type', 'application/json'); } catch (_) {}
+}
+
+// ────── ID resolution ─────────────────────────────────────────────────────────
+
+function resolveId(req) {
+  try {
+    // 1. query ?id=  (works with proxy rewrites)
+    var id = (req.query && req.query.id) || '';
+    // 2. params :id   (native Vercel route param)
+    if (!id) id = (req.params && req.params.id) || '';
+    // 3. URL path last segment (fallback)
+    if (!id) {
+      var raw   = req.url || '';
+      var parts = raw.split('?')[0].split('/').filter(Boolean);
+      id = parts[parts.length - 1] || '';
+    }
+    return String(id);
+  } catch (_) { return ''; }
+}
+
+// ────── JSON helpers ──────────────────────────────────────────────────────────
+
+function jget(obj, key, fallback) {
+  return (obj && typeof obj === 'object' && key in obj) ? obj[key] : fallback;
+}
+
+function bad(res, code, msg) {
+  try { setCors(res); } catch (_) {}
+  try { setJson(res); } catch (_) {}
+  return res.status(code).json({ error: msg });
+}
+
+function ok(res, code, data) {
+  try { setCors(res); } catch (_) {}
+  try { setJson(res); } catch (_) {}
+  return res.status(code).json(data);
+}
+
+// ────── GET handler ───────────────────────────────────────────────────────────
+
+async function doGet(id, res) {
+  if (!_db) return bad(res, 500, 'db module unavailable');
+  try {
+    var gate = await _db.list();
+    var all  = Array.isArray(gate) ? gate : [];
+    var tkt  = all.find(function(t) { return t && String(t.id).toLowerCase() === String(id).toLowerCase(); });
+    if (!tkt) return bad(res, 404, 'Ticket not found.');
+    return ok(res, 200, tkt);
+  } catch (err) {
+    return bad(res, 500, (err && err.message) || 'db list failed');
+  }
+}
+
+// ────── PATCH handler ─────────────────────────────────────────────────────────
+
+async function doPatch(id, body, res) {
+  if (!_db) return bad(res, 500, 'db module unavailable');
+  try {
+    var gate = await _db.list();
+    var all  = Array.isArray(gate) ? gate : [];
+    var idx  = all.findIndex(function(t) { return t && String(t.id).toLowerCase() === String(id).toLowerCase(); });
+    if (idx === -1) return bad(res, 404, 'Ticket not found.');
+
+    var upd    = Object.assign({}, all[idx]);
+    var used   = false;
+
+    var closed = body.closed;
+    if (closed !== undefined) {
+      var cv      = closed === true || closed === 'true' || closed === 1 || closed === '1';
+      upd.closed   = cv;
+      upd.closedAt = cv ? Date.now() : upd.closedAt;
+      upd.closedBy = cv && body.closedBy  ? body.closedBy  : upd.closedBy;
+      used = true;
     }
 
-    function setCors(req, res) {
-      var origin = req.headers && req.headers.origin;
-      if (originOk(origin)) {
-        res.setHeader('Access-Control-Allow-Origin', origin);
-      } else {
-        res.setHeader('Access-Control-Allow-Origin', 'https://verveutils.web.app');
-      }
-      res.setHeader('Access-Control-Allow-Methods', 'GET, PATCH, OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Master-Key');
-      res.setHeader('Access-Control-Allow-Credentials', 'true');
-      res.setHeader('Vary', 'Origin');
+    var lr = body.lastReply;
+    if (lr !== undefined) {
+      upd.lastReply  = lr;
+      upd.repliedAt  = Date.now();
+      upd.repliedBy  = body.repliedBy || upd.repliedBy;
+      var prev = Array.isArray(upd.responses) ? upd.responses.slice() : [];
+      upd.responses  = prev.concat([{ from: body.repliedBy || 'Staff', reply: lr, timestamp: Date.now() }]);
+      used = true;
     }
 
-    function setJson(res) {
-      try { res.setHeader('Content-Type', 'application/json'); } catch (_) {}
+    if (body.claimedBy !== undefined) { upd.claimedBy = body.claimedBy; used = true; }
+    if (body.typingBy  !== undefined) { upd.typingBy  = body.typingBy;  used = true; }
+
+    var hr = body.humanRequested;
+    if (hr !== undefined) {
+      var hv      = hr === true || hr === 'true' || hr === 1 || hr === '1';
+      upd.humanRequested   = hv;
+      upd.humanRequestedAt = hv ? Date.now() : upd.humanRequestedAt;
+      used = true;
     }
 
-    function resolveId(req) {
+    if (body.conversation !== undefined) { upd.conversation = body.conversation; used = true; }
+
+    if (!used) {
+      return bad(res, 400, 'No valid fields. Allowed: closed, lastReply, humanRequested, claimedBy, typingBy, conversation.');
+    }
+
+    var next  = all.slice();
+    next[idx] = upd;
+    await _db.save(next);
+    return ok(res, 200, upd);
+  } catch (err) {
+    return bad(res, 500, (err && err.message) || 'patch failed');
+  }
+}
+
+// ────── Request handler ───────────────────────────────────────────────────────
+
+module.exports = async function handler(req, res) {
+  try { setCors(req, res); } catch (_) {}
+
+  // OPTIONS preflight must return before touching db / query body
+  if (req && req.method === 'OPTIONS') {
+    try { setJson(res); } catch (_) {}
+    return res.status(200).end();
+  }
+
+  try { setJson(res); } catch (_) {}
+
+  var id = resolveId(req);
+
+  // Missing / debug
+  if (!id) {
+    if ((req.query && req.query.debug) === 'true') {
       try {
-        var id = (req.query && req.query.id) || '';
-        if (!id) {
-          var raw   = req.url || '';
-          var parts = raw.split('?')[0].split('/').filter(Boolean);
-          id = parts[parts.length - 1] || '';
-        }
-        return id;
-      } catch (_) { return ''; }
+        return ok(res, 200, {
+          db: _db ? 'loaded' : 'missing',
+          method:  (req && req.method) || 'unknown',
+          envKeys: Object.keys(process.env || {}).filter(function(k) { return /jsonbin/i.test(k); }),
+          ts: Date.now(),
+        });
+      } catch (_) {}
     }
+    return bad(res, 400, 'Ticket ID is required.');
+  }
 
-    return async function handler(req, res) {
-      // Hard safety net – every path always touches CORS
-      try {
-        setCors(req, res);
-      } catch (_) { /* CORS must never crash */ }
+  if (req && req.method === 'GET')  return doGet(id, res);
+  if (req && req.method === 'PATCH') return doPatch(id, req.body || {}, res);
 
-      if (req && req.method === 'OPTIONS') {
-        try { setJson(res); } catch (_) {}
-        return res.status(200).end();
-      }
+  return bad(res, 405, 'Method not allowed. Use GET or PATCH.');
+};
 
-      try { setJson(res); } catch (_) {}
-
-      var id = resolveId(req);
-
-      if (!id) {
-        try {
-          if ((req.query && req.query.debug) === 'true') {
-            return res.status(200).json({
-              db: db ? 'loaded' : 'missing',
-              method: (req && req.method) || 'unknown',
-              queryKeys: (req && req.query) ? Object.keys(req.query) : [],
-              envKeys: Object.keys(process.env || {}).filter(function(k) { return /jsonbin/i.test(k); }),
-              timestamp: Date.now(),
-            });
-          }
-        } catch (_) { /* debug path must not crash */ }
-        return res.status(400).json({ error: 'Ticket ID is required.' });
-      }
-
-      // Debug relay
-      if (!db) {
-        return res.status(500).json({ error: 'db module failed to load' });
-      }
-
-      // ── GET ──────────────────────────────────────────────────────────────────
-      if (req && req.method === 'GET') {
-        try {
-          var all = await db.list();
-          var gate = Array.isArray(all) ? all : [];
-          var ticket = gate.find(function(t) { return t && String(t.id).toLowerCase() === String(id).toLowerCase(); });
-          if (!ticket) { return res.status(404).json({ error: 'Ticket not found.' }); }
-          return res.status(200).json(ticket);
-        } catch (err) {
-          console.error('[ticket GET]', err && err.message || err);
-          return res.status(500).json({ error: (err && err.message) || String(err) });
-        }
-      }
-
-      // ── PATCH ────────────────────────────────────────────────────────────────
-      if (req && req.method === 'PATCH') {
-        try {
-          var body      = (req.body || {});
-          var closed    = body.closed;
-          var lastReply = body.lastReply;
-          var repliedBy = body.repliedBy;
-          var closedBy  = body.closedBy;
-          var humanReq  = body.humanRequested;
-          var claimedBy = body.claimedBy;
-          var typingBy  = body.typingBy;
-
-          var gate = await db.list();
-          var idx  = (gate || []).findIndex(function(t) { return t && String(t.id).toLowerCase() === String(id).toLowerCase(); });
-          if (idx === -1) { return res.status(404).json({ error: 'Ticket not found.' }); }
-
-          var updated = Object.assign({}, gate[idx]);
-          var used    = false;
-
-          if (closed !== undefined) {
-            var val        = closed === true || closed === 'true' || closed === 1 || closed === '1';
-            updated.closed   = val;
-            updated.closedAt = val ? Date.now() : updated.closedAt;
-            updated.closedBy = val && closedBy ? closedBy : updated.closedBy;
-            used = true;
-          }
-
-          if (lastReply !== undefined) {
-            updated.lastReply  = lastReply;
-            updated.repliedAt  = Date.now();
-            updated.repliedBy  = repliedBy || updated.repliedBy;
-            var respArr    = Array.isArray(updated.responses) ? updated.responses.slice() : [];
-            updated.responses  = respArr.concat([{ from: repliedBy || 'Staff', reply: lastReply, timestamp: Date.now() }]);
-            used = true;
-          }
-
-          if (claimedBy !== undefined) { updated.claimedBy = claimedBy; used = true; }
-          if (typingBy  !== undefined) { updated.typingBy  = typingBy;  used = true; }
-
-          if (humanReq !== undefined) {
-            var hum      = humanReq === true || humanReq === 'true' || humanReq === 1 || humanReq === '1';
-            updated.humanRequested   = hum;
-            updated.humanRequestedAt = hum ? Date.now() : updated.humanRequestedAt;
-            used = true;
-          }
-
-          if (!used) {
-            return res.status(400).json({
-              error: 'No valid fields to update. Allowed: closed, lastReply, humanRequested, claimedBy, typingBy.',
-            });
-          }
-
-          var next         = (gate || []).slice();
-          next[idx]        = updated;
-          await db.save(next);
-
-          return res.status(200).json(updated);
-        } catch (err) {
-          console.error('[ticket PATCH]', err && err.message || err);
-          return res.status(500).json({ error: (err && err.message) || String(err) });
-        }
-      }
-
-      return res.status(405).json({ error: 'Method not allowed. Use GET or PATCH.' });
-    };
-  })();
 } catch (outerErr) {
-  // Nuclear: module-level crash — export a handler that always sends JSON 500
-  console.error('[LOAD-FATAL]', outerErr && outerErr.message || outerErr);
+  // Absolute last resort — even a SyntaxError from source-parse never crashes Vercel
+  console.error('[LOAD-FATAL]', outerErr && outerErr.message || String(outerErr));
   module.exports = async function handler(req, res) {
     try { res.setHeader('Content-Type', 'application/json'); } catch (_) {}
-    try { res.status(500).json({ error: (outerErr && outerErr.message) || String(outerErr) }); } catch (_) { res.status(500); }
+    try {
+      res.status(500).json({ error: (outerErr && outerErr.message) || String(outerErr) });
+    } catch (_) { res.status(500); }
   };
 }
