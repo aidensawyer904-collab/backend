@@ -1,16 +1,5 @@
 {
   "version": 2,
-  "builds": [
-    {
-      "src": "api/**/*.js",
-      "use": "@vercel/node",
-      "config": {
-        "includeFiles": "api/**",
-        "maxDuration": 30,
-        "runtime": "nodejs18.x"
-      }
-    }
-  ],
   "routes": [
     {
       "src": "/api/tickets/:id",
