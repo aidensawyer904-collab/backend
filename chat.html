@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chat - Support Ticket</title>
+  <link rel="stylesheet" href="../style.css">
+  <style>
+    .chat-container {
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 0 18px;
+    }
+    .ticket-info {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    .ticket-info h3 { margin: 0 0 8px 0; }
+    .ticket-info p { margin: 4px 0; color: var(--muted); }
+    .messages-container {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px;
+      min-height: 200px;
+      max-height: 500px;
+      overflow-y: auto;
+      background: var(--bg);
+      margin-bottom: 16px;
+      /* Allow container to grow as messages are added */
+    }
+    .message { margin-bottom: 16px; }
+    .message-user { text-align: right; }
+    .message-content {
+      display: inline-block;
+      padding: 12px 16px;
+      border-radius: 12px;
+      max-width: 70%;
+      word-wrap: break-word;
+    }
+    .message-user .message-content { background: #000; color: #fff; }
+    .message-agent .message-content { background: rgba(0,0,0,0.05); color: var(--text); }
+    .message-sender { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+    .input-area { display: flex; gap: 8px; }
+    .input-area textarea {
+      flex: 1; padding: 12px; border-radius: 12px;
+      border: 1px solid var(--border); background: var(--bg); color: var(--text);
+      font-family: inherit; resize: none;
+      min-height: 48px;
+    }
+    .input-area button { padding: 0 24px; height: 48px; }
+    .closed-notice {
+      background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3);
+      color: #ef4444; padding: 16px; border-radius: 12px; margin-bottom: 16px;
+    }
+    .request-human-btn {
+      background: #2563eb; color: white; border: none; padding: 8px 16px;
+      border-radius: 6px; cursor: pointer; font-size: 14px; margin-top: 8px;
+    }
+    .request-human-btn.requested { background: #6b7280; cursor: default; }
+    .staff-reply-indicator {
+      background: rgba(37,99,235,0.1); border: 1px solid rgba(37,99,235,0.3);
+      color: #2563eb; padding: 8px 12px; border-radius: 6px;
+      font-size: 12px; margin-top: 8px; display: none;
+    }
+    .joined-banner {
+      background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.35);
+      color: #059669; padding: 12px 16px; border-radius: 10px;
+      font-size: 13px; font-weight: 600; margin-bottom: 16px;
+      display: flex; align-items: center; gap: 10px;
+      animation: joined-in 0.4s ease-out;
+    }
+    .joined-banner .joined-icon { font-size: 18px; line-height: 1; }
+    .typing-indicator {
+      display: flex; align-items: center; gap: 6px;
+      padding: 8px 12px; background: rgba(0,0,0,0.05); border-radius: 10px;
+      font-size: 13px; color: var(--muted);
+    }
+    .typing-dots span {
+      display: inline-block;
+      width: 6px; height: 6px;
+      background: var(--muted);
+      border-radius: 50%;
+      margin: 0 2px;
+      animation: typing-bounce 1.4s ease-in-out infinite;
+    }
+    .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+    .fetching-indicator {
+      display: flex; align-items: center; gap: 6px;
+      padding: 8px 12px; background: rgba(0,0,0,0.05); border-radius: 10px;
+      font-size: 13px; color: var(--muted);
+      min-height: 48px;
+    }
+    .fetching-dots span {
+      display: inline-block;
+      width: 6px; height: 6px;
+      background: var(--muted);
+      border-radius: 50%;
+      margin: 0 2px;
+      animation: typing-bounce 1.4s ease-in-out infinite;
+    }
+    .fetching-dots span:nth-child(2) { animation-delay: 0.2s; }
+    .fetching-dots span:nth-child(3) { animation-delay: 0.4s; }
+    .terms-list {
+      background: rgba(0,0,0,0.03);
+      border-radius: 8px;
+      padding: 16px;
+      margin: 12px 0;
+      border-left: 3px solid #2563eb;
+    }
+    .terms-list h4 {
+      margin-top: 0;
+      color: #2563eb;
+      font-size: 15px;
+    }
+    .terms-list ul {
+      margin: 8px 0 0 20px;
+      padding: 0;
+    }
+    .copyright {
+      text-align: center;
+      padding: 16px;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 20px;
+      border-top: 1px solid var(--border);
+    }
+    .ticket-error {
+      background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3);
+      color: #ef4444; padding: 16px; border-radius: 12px; margin-bottom: 16px;
+      text-align: center;
+    }
+    .ticket-error button {
+      background: #ef4444; color: white; border: none; padding: 8px 16px;
+      border-radius: 6px; cursor: pointer; font-size: 14px; margin-top: 8px;
+    }
+    .ticket-error button:hover { background: #dc2626; }
+    @keyframes joined-in    { from { opacity:0; transform:translateY(-6px) } to { opacity:1; transform:translateY(0) } }
+    @keyframes typing-bounce { 0%,60%,100%{transform:translateY(0)} 30%{transform:translateY(-4px)} }
+  </style>
+</head>
+<body>
+  <nav>
+    <a href="../" class="left">Verve Utils</a>
+    <div class="links">
+      <a href="../">Home</a>
+      <a href="../faq/">FAQ</a>
+      <a href="../docs/">Docs</a>
+      <button id="theme-toggle" class="theme-btn" aria-label="Toggle theme">
+        <svg id="theme-icon" viewBox="0 0 24 24" fill="none" stroke-width="2">
+          <circle cx="12" cy="12" r="5"/>
+          <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+        </svg>
+      </button>
+    </div>
+  </nav>
+
+    <div class="chat-container">
+    <div id="closed-notice" class="closed-notice" style="display:none;">
+      This ticket has been closed. For transcripts and staff reference, tickets cannot be reopened.
+      <div style="margin-top: 12px;"><a href="../support/" class="new-ticket-btn">Create New Ticket</a></div>
+    </div>
+
+    <div id="ticket-error" class="ticket-error" style="display:none;">
+      <p id="ticket-error-msg">Unable to load this ticket.</p>
+      <button onclick="window.location.reload()">Try Again</button>
+    </div>
+
+    <div id="ticket-info" class="ticket-info">
+      <h3>Support Ticket</h3>
+      <p id="ticket-id">Ticket: Loading...</p>
+      <p id="ticket-status">Status: <span class="status-open">Open</span></p>
+    </div>
+
+    <div id="joined-banner" class="joined-banner" style="display:none">
+      <span class="joined-icon">&#127891;</span>
+      <span id="joined-text"></span>
+    </div>
+
+    <div id="typing-banner" class="typing-banner">
+      <span id="typing-name"></span>
+      <span class="typing-dots"><span>.</span><span>.</span><span>.</span></span>
+    </div>
+
+    <div id="transcript-view" style="display: none; padding: 20px; background: var(--bg); border-radius: 14px; border: 1px solid var(--border); margin-bottom: 16px;">
+      <div id="transcript-content"></div>
+      <div style="margin-top: 16px; text-align: center;">
+        <a href="../support/" class="new-ticket-btn">Create New Ticket</a>
+      </div>
+    </div>
+
+    <div id="messages" class="messages-container"></div>
+
+    <div id="staff-reply-indicator" class="staff-reply-indicator"></div>
+
+    <div class="input-area">
+      <textarea id="message-input" placeholder="Type your message..." rows="2"></textarea>
+      <button id="send-btn" class="btn btn-black">Send</button>
+    </div>
+    <button id="request-human-btn" class="request-human-btn">Request Human Support</button>
+   <div class="copyright">
+      &copy; 2026 Verve Utils. All rights reserved.
+   </div>
+  </div>
+
+  <script>
+    const API_BASE = 'https://backend-five-pink-62.vercel.app/api';
+    let refreshTimeout = null;
+
+    // ---- helpers ----
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function formatTime(ts) {
+      if (!ts) return '';
+      return new Date(ts).toLocaleTimeString();
+    }
+
+    /**
+     * Fetch single ticket by id.
+     * Defensively returns null when the backend accidentally returns a collection
+     * array instead of a ticket object (eg. routing error on refresh).
+     */
+    async function getTicket(id) {
+      const res = await fetch(API_BASE + '/tickets/' + encodeURIComponent(id), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) {
+        throw new Error('Failed to load ticket (' + res.status + ')');
+      }
+      const data = await res.json();
+
+      // Guard: the backend must return a ticket object, not a collection array
+      if (!data || !data.id || typeof data.id !== 'string') {
+        console.warn('[chat] expected ticket object, got:', typeof data, Array.isArray(data) ? ('array len=' + data.length) : JSON.stringify(data));
+        return null;
+      }
+      return data;
+    }
+
+    /**
+     * Safely patch a ticket: read-modify-write to avoid stale writes.
+     */
+    async function patchTicket(id, updates) {
+      const ticket = await getTicket(id);
+      if (!ticket) throw new Error('Ticket not found for PATCH');
+      const merged = Object.assign({}, ticket, updates);
+      const res = await fetch(API_BASE + '/tickets/' + encodeURIComponent(id), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(merged),
+      });
+      if (!res.ok) throw new Error('PATCH failed (' + res.status + ')');
+      return merged;
+    }
+
+    // ---- AI responses ----
+
+    const aiResponses = {
+      'hello': 'Hello! How can I help you today?',
+      'hi': 'Hi there! What can I assist you with?',
+      'help': "I'm here to help! Please let me know what you need assistance with.",
+      'bug': "I'm sorry to hear you're experiencing a bug. Could you provide more details about what's happening?",
+      'error': "Let's troubleshoot this error. Can you tell me more about when it occurs?",
+      'question': "I'd be happy to answer your question. What would you like to know?",
+      'issue': 'I understand you have an issue. Let me help you resolve it.',
+      'complaint': "I'm sorry for the trouble. Let's get this sorted out for you.",
+      'problem': "Let's solve this problem together. What's going on?",
+      'thank': "You're welcome! Is there anything else I can help with?",
+      'thanks': "You're welcome! Let me know if you need anything else.",
+      'stuck': "Let's get you unstuck. Can you share more details about what you're working on?",
+      'cant': "Let's figure this out. What specifically are you trying to do?",
+      'cannot': "Let's find a solution. What are you trying to accomplish?",
+      'slow': 'I apologize for the slow response. Is there something specific I can help with?',
+      'lag': "I understand the frustration with lag. Let's see if we can address this."
+    };
+
+    // ---- element refs ----
+
+    const messagesContainer = document.getElementById('messages');
+    const transcriptView    = document.getElementById('transcript-view');
+    const transcriptContent = document.getElementById('transcript-content');
+    const messageInput      = document.getElementById('message-input');
+    const sendBtn           = document.getElementById('send-btn');
+    const ticketIdEl        = document.getElementById('ticket-id');
+    const ticketStatusEl    = document.getElementById('ticket-status');
+    const closedNotice      = document.getElementById('closed-notice');
+    const ticketErrorEl     = document.getElementById('ticket-error');
+    const ticketErrorMsg    = document.getElementById('ticket-error-msg');
+    const requestHumanBtn   = document.getElementById('request-human-btn');
+    const joinedBanner      = document.getElementById('joined-banner');
+    const joinedText        = document.getElementById('joined-text');
+    const staffReplyIndicator = document.getElementById('staff-reply-indicator');
+    const typingBanner      = document.getElementById('typing-banner');
+    const typingName        = document.getElementById('typing-name');
+
+    // ---- state ----
+
+    const urlParams    = new URLSearchParams(window.location.search);
+    const ticketId     = urlParams.get('ticket');
+    const isTranscript = urlParams.get('transcript') === 'true';
+
+    if (!ticketId) {
+      window.location.href = '../support/';
+    }
+
+    let lastConversationHash = '';
+    let isTyping = false;
+    let typingTimeout = null;
+    let agentHasJoined = false;
+    let lastStaffReplyAt = 0;
+    let lastTypingBy = '';
+    let isLoading = false;
+    let isFetching = false;
+    let fetchingTimeout = null;
+    let aiTypingTimeout = null;
+    let refreshBackoffMs = 0;
+
+    // ---- theme ----
+
+    const themeToggle = document.getElementById('theme-toggle');
+    const themeIcon   = document.getElementById('theme-icon');
+    const savedTheme  = localStorage.getItem('theme');
+
+    if (savedTheme === 'dark') { document.body.classList.add('dark'); updateThemeIcon('moon'); }
+    else { updateThemeIcon('sun'); }
+
+    themeToggle.addEventListener('click', () => {
+      const isDark = document.body.classList.toggle('dark');
+      localStorage.setItem('theme', isDark ? 'dark' : 'light');
+      updateThemeIcon(isDark ? 'moon' : 'sun');
+    });
+
+    function updateThemeIcon(type) {
+      themeIcon.innerHTML = type === 'moon'
+        ? '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>'
+        : '<circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>';
+    }
+
+    // ---- rendering ----
+
+    function addMessage(sender, content, ts) {
+      const div   = document.createElement('div');
+      const isUser = sender === 'You' || sender === 'User';
+      const timestamp = ts || Date.now();
+      div.className = 'message ' + (isUser ? 'message-user' : 'message-agent');
+      div.innerHTML =
+        '<div class="message-sender">' + escapeHtml(sender) + ' at ' + formatTime(timestamp) + '</div>' +
+        '<div class="message-content">' + content + '</div>';
+      messagesContainer.appendChild(div);
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+
+    function renderMessages(conversationStr) {
+      messagesContainer.innerHTML = '';
+      const lines = String(conversationStr || '').split('\n').filter(l => l.trim());
+
+      lines.forEach(function (line) {
+        var tsMarker = line.indexOf('[<t>');
+        var tsEnd    = tsMarker >= 0 ? line.indexOf('</t>]', tsMarker) : -1;
+        var renderTs = Date.now();
+        var rawLine  = line;
+
+        if (tsMarker >= 0 && tsEnd > tsMarker) {
+          var tsStr  = line.substring(tsMarker + 4, tsEnd);
+          renderTs   = parseInt(tsStr, 10) || Date.now();
+          rawLine    = line.substring(0, tsMarker) + line.substring(tsEnd + 5);
+        }
+
+        var colonIdx = rawLine.indexOf(': ');
+        if (colonIdx > 0) {
+          var sender  = rawLine.substring(0, colonIdx);
+          var content = rawLine.substring(colonIdx + 2);
+          var isUser  = sender === 'You' || sender === 'User';
+          var div     = document.createElement('div');
+          div.className = 'message ' + (isUser ? 'message-user' : 'message-agent');
+          div.innerHTML =
+            '<div class="message-sender">' + escapeHtml(sender) + ' at ' + formatTime(renderTs) + '</div>' +
+            '<div class="message-content">' + escapeHtml(content) + '</div>';
+          messagesContainer.appendChild(div);
+        }
+      });
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+
+    // ---- transcript ----
+
+    function showTranscript(ticket) {
+      document.getElementById('ticket-info').style.display = 'none';
+      messagesContainer.style.display = 'none';
+      document.querySelector('.input-area').style.display = 'none';
+      requestHumanBtn.style.display  = 'none';
+      joinedBanner.style.display     = 'none';
+      transcriptView.style.display   = 'block';
+
+      ticketIdEl.textContent = 'Ticket: ' + ticket.id;
+      ticketStatusEl.innerHTML = 'Status: <span class="status-open">Open</span>';
+
+      transcriptContent.innerHTML =
+        '<div style="margin-bottom:16px;"><h3>Transcript: ' + escapeHtml(ticket.id) + '</h3>' +
+        '<p><strong>Subject:</strong> ' + escapeHtml(ticket.subject || 'No subject') + '</p>' +
+        '<p><strong>Email:</strong> ' + escapeHtml(ticket.email || '') + '</p>' +
+        '<p><strong>Created:</strong> ' + new Date(ticket.timestamp).toLocaleString() + '</p>' +
+        (ticket.closedBy  ? '<p><strong>Closed by:</strong> ' + escapeHtml(ticket.closedBy) + '</p>' : '') +
+        (ticket.closedAt  ? '<p><strong>Closed:</strong> ' + new Date(ticket.closedAt).toLocaleString() + '</p>' : '') +
+        '</div>' +
+        '<div style="background:rgba(0,0,0,0.03);padding:16px;border-radius:8px;line-height:1.6;">' +
+        String(ticket.conversation || '').split('\n').filter(function(l) { return l.trim(); }).map(function(line) {
+          var colonIdx = line.indexOf(': ');
+          if (colonIdx <= 0) return '';
+          var sender  = line.substring(0, colonIdx);
+          var content = line.substring(colonIdx + 2);
+          var isUser  = sender === 'You' || sender === 'User';
+          return '<div style="margin-bottom:12px;display:flex;">' +
+            '<div style="font-size:12px;opacity:0.7;margin-bottom:4px;' + (isUser ? 'margin-left:auto;' : '') + '">' + escapeHtml(sender) + '</div>' +
+            '<div style="background:' + (isUser ? '#000' : 'rgba(0,0,0,0.05)') + ';color:' + (isUser ? '#fff' : 'var(--text)') + ';' +
+            'padding:10px 16px;border-radius:18px;max-width:70%;' + (isUser ? 'margin-left:auto;' : 'margin-right:auto;') + ';word-wrap:break-word;">' +
+            escapeHtml(content) + '</div></div>';
+        }).join('') +
+        '</div>';
+    }
+
+    // ---- typing / fetching ----
+
+    function showTypingIndicator() {
+      if (document.getElementById('typing-indicator')) return;
+      var div = document.createElement('div');
+      div.id = 'typing-indicator';
+      div.className = 'typing-indicator';
+      div.innerHTML = '<span>AI Assistant</span><span class="typing-dots"><span></span><span></span><span></span></span>';
+      messagesContainer.appendChild(div);
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+
+    function hideTypingIndicator() {
+      var div = document.getElementById('typing-indicator');
+      if (div) div.remove();
+    }
+
+    function showFetchingIndicator() {
+      if (isFetching) return;
+      isFetching = true;
+      var div = document.createElement('div');
+      div.id = 'fetching-indicator';
+      div.className = 'fetching-indicator';
+      div.innerHTML = '<span>Fetching Correct Docs</span><span class="fetching-dots"><span></span><span></span><span></span></span>';
+      messagesContainer.appendChild(div);
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      if (fetchingTimeout) clearInterval(fetchingTimeout);
+      fetchingTimeout = setInterval(function() {
+        var dots = document.querySelectorAll('#fetching-indicator .fetching-dots span');
+        dots.forEach(function(dot, index) { dot.style.opacity = index % 3 === 0 ? '0.2' : '1'; });
+      }, 300);
+    }
+
+    function hideFetchingIndicator() {
+      isFetching = false;
+      if (fetchingTimeout) { clearInterval(fetchingTimeout); fetchingTimeout = null; }
+      var div = document.getElementById('fetching-indicator');
+      if (div) div.remove();
+    }
+
+    async function fetchTermsDocument() {
+      try {
+        var res = await fetch('../terms/');
+        if (!res.ok) throw new Error('Failed to fetch terms document');
+        var html = await res.text();
+        var text = html
+          .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+          .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+          .replace(/<\/div>/gi, '\n').replace(/<\/p>/gi, '\n')
+          .replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>/g, '')
+          .replace(/\n\s*\n/g, '\n\n').trim();
+
+        hideFetchingIndicator();
+
+        if (text.length > 0) {
+          var formatted = formatTermsContent(text);
+          await appendToConversation('AI Assistant: [<t>' + Date.now() + '</t>] ' + formatted.replace(/\n/g, '<br>').replace(/"/g, '&quot;'));
+        } else {
+          await appendToConversation('AI Assistant: I\'ve retrieved the Terms of Service document. For the complete and most up-to-date version, please visit our /terms/ page directly. [<t>' + Date.now() + '</t>]');
+        }
+        await appendToConversation('AI Assistant: For the complete Terms of Service with all details, please visit /terms/ [<t>' + Date.now() + '</t>]');
+      } catch (err) {
+        console.error('[chat] fetchTermsDocument error:', err);
+        hideFetchingIndicator();
+        await appendToConversation('AI Assistant: I\'m unable to fetch the Terms of Service document at the moment. Please try again later or visit /terms/ directly. [<t>' + Date.now() + '</t>]');
+      }
+    }
+
+    function formatTermsContent(content) {
+      var lines = content.split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return l.length > 0; });
+      if (lines.length > 5 && content.length > 200) {
+        var preview   = lines.slice(0, 8);
+        var formatted = '<div class="terms-list"><h4>Terms of Service Preview:</h4><ul>';
+        preview.forEach(function(line) {
+          var clean = line.replace(/[\[\]{}()]/g, '').trim();
+          if (clean.length > 10) formatted += '<li>' + escapeHtml(clean) + '</li>';
+        });
+        formatted += '</ul><p><em>...and more. For the complete terms, visit /terms/</em></p></div>';
+        return formatted;
+      }
+      return content.substring(0, 500) + (content.length >= 500 ? '...' : '');
+    }
+
+    /**
+     * Append a line to the conversation using safe read-modify-write.
+     * Retries once on conflict / stale read.
+     */
+    async function appendToConversation(line) {
+      var ticket = await getTicket(ticketId);
+      if (!ticket || ticket.closed) return;
+      var updatedConv = (ticket.conversation || '') + '\n' + line;
+      try {
+        await patchTicket(ticketId, { conversation: updatedConv });
+      } catch (err) {
+        console.error('[chat] appendToConversation error:', err);
+      }
+    }
+
+    // ---- main loadTicket ----
+
+    async function loadTicket() {
+      if (!ticketId || isLoading) return;
+      isLoading = true;
+      var needsRefresh = false;
+
+      try {
+        var ticket = await getTicket(ticketId);
+
+        // --- defensive guard: ticket must be a valid object ---
+        if (!ticket || !ticket.id || typeof ticket.id !== 'string') {
+          console.warn('[chat] loadTicket: invalid ticket response, scheduling retry');
+          hideTypingIndicator();
+          hideFetchingIndicator();
+          if (refreshBackoffMs < 8000) refreshBackoffMs += 1000;
+          if (refreshTimeout) clearTimeout(refreshTimeout);
+          refreshTimeout = setTimeout(function() { window.location.reload(); }, refreshBackoffMs);
+          return;  // <-- do NOT use the invalid response
+        }
+        // ----------------------------------------------------
+
+        if (ticket.closed) {
+          closedNotice.style.display = 'block';
+          document.getElementById('ticket-info').style.display = 'none';
+          messagesContainer.style.display = 'none';
+          document.querySelector('.input-area').style.display = 'none';
+          requestHumanBtn.style.display   = 'none';
+          joinedBanner.style.display      = 'none';
+          transcriptView.style.display    = 'none';
+          ticketErrorEl.style.display     = 'none';
+          return;
+        }
+
+        // transcript mode
+        if (isTranscript) {
+          showTranscript(ticket);
+          return;
+        }
+
+        // normal chat view — show UI
+        ticketErrorEl.style.display = 'none';
+        document.getElementById('ticket-info').style.display = 'block';
+        messagesContainer.style.display = 'block';
+        document.querySelector('.input-area').style.display = 'flex';
+        requestHumanBtn.style.display   = 'block';
+        transcriptView.style.display    = 'none';
+
+        // ticket id is now guaranteed to be a real string
+        ticketIdEl.textContent = 'Ticket: ' + ticket.id;
+        ticketStatusEl.innerHTML = ticket.closed
+          ? 'Status: <span style="color:#ef4444;">Closed</span>'
+          : 'Status: <span class="status-open">Open</span>';
+
+        if (ticket.claimedBy) {
+          joinedText.textContent = ticket.claimedBy + ' has joined your chat';
+          joinedBanner.style.display = 'flex';
+          if (!agentHasJoined) {
+            agentHasJoined = true;
+            setTimeout(function() { joinedBanner.style.display = 'none'; }, 6000);
+          }
+        } else {
+          joinedBanner.style.display = 'none';
+        }
+
+        var currentHash = String(ticket.conversation || '').length;
+        if (currentHash !== lastConversationHash) {
+          lastConversationHash = currentHash;
+          renderMessages(ticket.conversation);
+        }
+
+        if (ticket.humanRequested) {
+          requestHumanBtn.textContent = 'Human Support Requested';
+          requestHumanBtn.classList.add('requested');
+          requestHumanBtn.disabled = true;
+        } else {
+          requestHumanBtn.textContent = 'Request Human Support';
+          requestHumanBtn.classList.remove('requested');
+          requestHumanBtn.disabled = false;
+        }
+
+        if (ticket.lastReply) {
+          staffReplyIndicator.textContent = 'Staff replied: ' + ticket.lastReply;
+          staffReplyIndicator.style.display = 'block';
+          lastStaffReplyAt = ticket.repliedAt || 0;
+        } else {
+          staffReplyIndicator.style.display = 'none';
+        }
+
+        // typing indicator
+        if (ticket.typingBy && ticket.typingBy !== lastTypingBy) {
+          lastTypingBy = ticket.typingBy;
+          if (ticket.typingBy) {
+            typingName.textContent = ticket.typingBy + ' is typing';
+            typingBanner.style.display = 'flex';
+            if (typingTimeout) clearTimeout(typingTimeout);
+            typingTimeout = setTimeout(function() { typingBanner.style.display = 'none'; }, 3000);
+          } else {
+            typingBanner.style.display = 'none';
+          }
+        }
+
+        // success — reset backoff
+        if (refreshBackoffMs > 0) { refreshBackoffMs = 0; if (refreshTimeout) clearTimeout(refreshTimeout); }
+
+      } catch (err) {
+        console.error('[chat] loadTicket error:', err.message || err);
+        ticketErrorMsg.textContent = err.message || 'Failed to load ticket. Please try again.';
+        ticketErrorEl.style.display = 'block';
+        document.getElementById('ticket-info').style.display = 'none';
+        messagesContainer.style.display = 'none';
+        transcriptView.style.display = 'none';
+        closedNotice.style.display = 'none';
+      } finally {
+        isLoading = false;
+      }
+    }
+
+    // ---- send / human / events ----
+
+    async function sendMessage() {
+      var message = messageInput.value.trim();
+      if (!message || !ticketId) return;
+      sendBtn.disabled = true;
+
+      try {
+        var ticket = await getTicket(ticketId);
+        if (!ticket || ticket.closed) return;
+
+        var updatedConv = (ticket.conversation || '') + '\nYou: ' + message + ' [<t>' + Date.now() + '</t>]';
+        await patchTicket(ticketId, { conversation: updatedConv });
+
+        messageInput.value = '';
+
+        if (!ticket.humanRequested) {
+          showTypingIndicator();
+          if (aiTypingTimeout) clearTimeout(aiTypingTimeout);
+          aiTypingTimeout = setTimeout(async function() {
+            hideTypingIndicator();
+            var aiResponse = getAIResponse(message);
+            if (aiResponse) {
+              await appendToConversation('AI Assistant: ' + aiResponse + ' [<t>' + Date.now() + '</t>]');
+              await loadTicket();
+            }
+          }, 1000 + Math.random() * 1000);
+        } else {
+          await loadTicket();
+        }
+      } catch (err) {
+        console.error('[chat] send error:', err.message || err);
+      } finally {
+        sendBtn.disabled = false;
+      }
+    }
+
+    function getAIResponse(message) {
+      var lower = message.toLowerCase();
+      if (lower.indexOf('terms')   !== -1 ||
+          lower.indexOf('tos')     !== -1 ||
+          lower.indexOf('legal')   !== -1 ||
+          lower.indexOf('terms of service') !== -1 ||
+          lower.indexOf('terms and conditions') !== -1) {
+        showFetchingIndicator();
+        setTimeout(async function() {
+          if (isFetching) { await fetchTermsDocument(); await loadTicket(); }
+        }, 3000);
+        return null;
+      }
+      for (var k in aiResponses) {
+        if (Object.prototype.hasOwnProperty.call(aiResponses, k) && lower.indexOf(k) !== -1) {
+          return aiResponses[k];
+        }
+      }
+      return 'Thank you for your message. A staff member will review this shortly. ' +
+        'You can also click "Request Human Support" if you need immediate assistance.';
+    }
+
+    sendBtn.addEventListener('click', sendMessage);
+
+    messageInput.addEventListener('keypress', function(e) {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendBtn.click(); }
+    });
+
+    requestHumanBtn.addEventListener('click', async function() {
+      if (!ticketId) return;
+      requestHumanBtn.disabled = true;
+      try {
+        await patchTicket(ticketId, { humanRequested: true });
+        await appendToConversation('AI Assistant: I\'ve notified staff that you need human assistance. Someone will join this chat shortly. [<t>' + Date.now() + '</t>]');
+        requestHumanBtn.textContent = 'Human Support Requested';
+        requestHumanBtn.classList.add('requested');
+        await loadTicket();
+      } catch (err) {
+        console.error('[chat] request human error:', err.message || err);
+        requestHumanBtn.disabled = false;
+      }
+    });
+
+    // ---- boot ----
+    loadTicket();
+    setInterval(loadTicket, 3000);
+  </script>
+</body>
+</html>

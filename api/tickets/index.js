@@ -119,9 +119,7 @@ module.exports = async function handler(req, res) {
     var all    = readAll();
     var ticket = all.find(function (t) { return t && String(t.id).toLowerCase() === String(id).toLowerCase(); });
     if (!ticket) return err(res, 404, 'Ticket not found.');
-    var out = Object.assign({}, ticket);
-    out.conversation = normalise(out.conversation);
-    return ok(res, 200, out);
+    return ok(res, 200, ticket);
   }
 
   // ── POST ─────────────────────────────────────────────────────────
