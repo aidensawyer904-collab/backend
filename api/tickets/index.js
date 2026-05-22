@@ -19,9 +19,9 @@ function writeAll (records) {
     if (Array.isArray(raw) && raw.length > 0) return;
   } catch (_) {}
   writeAll([
-    { _layoutBuild: 'v1', id: 'TE2ZZ6-TEC', email: 'alice@example.com', subject: 'Subscription not activating',    description: 'Paid for Pro plan but account still shows Free tier.',   status: 'open', timestamp: Math.floor(Date.now() / 1000), humanRequested: false, initialMessage: 'Paid for Pro plan but account still shows Free tier.',   conversation: 'You: Paid for Pro plan but account still shows Free tier.',   closed: false, closedAt: null, closedBy: null, lastReply: null, repliedAt: null, repliedBy: null, humanRequestedAt: null, claimedBy: null, claimedAt: null, responses: [] },
-    { _layoutBuild: 'v1', id: '1CMVXO-TEC', email: 'bob@example.com',   subject: 'Cannot upload avatar',          description: 'Upload button does nothing on Chrome 131.',             status: 'open', timestamp: Math.floor(Date.now() / 1000), humanRequested: false, initialMessage: 'Upload button does nothing on Chrome 131.',             conversation: 'You: Upload button does nothing on Chrome 131.',             closed: false, closedAt: null, closedBy: null, lastReply: null, repliedAt: null, repliedBy: null, humanRequestedAt: null, claimedBy: null, claimedAt: null, responses: [] },
-    { _layoutBuild: 'v1', id: 'F6DQMK-DEB', email: 'carol@example.com', subject: 'Billing invoice missing',      description: 'Need a copy of the March invoice for expense report.',  status: 'open', timestamp: Math.floor(Date.now() / 1000), humanRequested: false, initialMessage: 'Need a copy of the March invoice for expense report.',   conversation: 'You: Need a copy of the March invoice for expense report.',   closed: false, closedAt: null, closedBy: null, lastReply: null, repliedAt: null, repliedBy: null, humanRequestedAt: null, claimedBy: null, claimedAt: null, responses: [] },
+    { id: 'TE2ZZ6-TEC', email: 'alice@example.com', subject: 'Subscription not activating',    description: 'Paid for Pro plan but account still shows Free tier.',   status: 'open', timestamp: Math.floor(Date.now() / 1000), humanRequested: false, initialMessage: 'Paid for Pro plan but account still shows Free tier.',   conversation: 'You: Paid for Pro plan but account still shows Free tier.',   closed: false, closedAt: null, closedBy: null, lastReply: null, repliedAt: null, repliedBy: null, humanRequestedAt: null, claimedBy: null, claimedAt: null, responses: [] },
+    { id: '1CMVXO-TEC', email: 'bob@example.com',   subject: 'Cannot upload avatar',          description: 'Upload button does nothing on Chrome 131.',             status: 'open', timestamp: Math.floor(Date.now() / 1000), humanRequested: false, initialMessage: 'Upload button does nothing on Chrome 131.',             conversation: 'You: Upload button does nothing on Chrome 131.',             closed: false, closedAt: null, closedBy: null, lastReply: null, repliedAt: null, repliedBy: null, humanRequestedAt: null, claimedBy: null, claimedAt: null, responses: [] },
+    { id: 'F6DQMK-DEB', email: 'carol@example.com', subject: 'Billing invoice missing',      description: 'Need a copy of the March invoice for expense report.',  status: 'open', timestamp: Math.floor(Date.now() / 1000), humanRequested: false, initialMessage: 'Need a copy of the March invoice for expense report.',   conversation: 'You: Need a copy of the March invoice for expense report.',   closed: false, closedAt: null, closedBy: null, lastReply: null, repliedAt: null, repliedBy: null, humanRequestedAt: null, claimedBy: null, claimedAt: null, responses: [] },
   ]);
 })();
 
@@ -50,10 +50,15 @@ function setHeaders (res) {
 function resolveId (req) {
   try {
     var id = (req.query && req.query.id) || '';
-    if (!id) id = (req.params && req.params.id) || '';
     if (!id) {
-      var index = req.params && Array.isArray(req.params) ? 0 : null;
-      id = (index !== null && typeof req.params[index] === 'string' && req.params[index]) || '';
+      id = (req.params && req.params.id) || '';
+      if (!id && req.params) {
+        // Vercel (.*) capture may expose index[0] instead of named .id
+        for (var i = 0; i < Object.keys(req.params).length; i++) {
+          var v = req.params[i];
+          if (v && v !== '' && v !== '/') { id = v; break; }
+        }
+      }
     }
     return String(id);
   } catch (_) { return ''; }
@@ -73,21 +78,10 @@ module.exports = async function handler(req, res) {
   if (req.method === 'GET') {
     var id = resolveId(req);
 
-    // debug endpoint — only when path IS /api/tickets (not /api/tickets/:id)
     if (!id) {
-      if ((req.query && req.query.debug) === 'true') {
-        return ok(res, 200, {
-          src   : 'file',
-          store : '/tmp/verve_tickets.json',
-          node  : process.version,
-          ts    : Date.now(),
-          seed  : 'TE2ZZ6-TEC,1CMVXO-TEC,F6DQMK-DEB',
-        });
-      }
       // ── collection ────────────────────────────────────────────────
-      var records = readAll();
-      console.error('[GET-collection] records=', Array.isArray(records) ? records.length : 'n/a', 'first:', records[0] && records[0].id);
-      var result  = records.filter(function (t) { return t && typeof t === 'object'; });
+      var records2 = readAll();
+      var result   = records2.filter(function (t) { return t && typeof t === 'object'; });
 
       var { status, humanOnly, search } = req.query;
 
@@ -97,12 +91,12 @@ module.exports = async function handler(req, res) {
       if (humanOnly === 'true')       result = result.filter(function (t) { return t.humanRequested === true; });
 
       if (search) {
-        var term = String(search).toLowerCase();
-        result   = result.filter(function (t) {
-          return (String(t.id          || '').toLowerCase().indexOf(term) !== -1) ||
-                 (String(t.email       || '').toLowerCase().indexOf(term) !== -1) ||
-                 (String(t.subject     || '').toLowerCase().indexOf(term) !== -1) ||
-                 (String(t.description || '').toLowerCase().indexOf(term) !== -1);
+        var term2 = String(search).toLowerCase();
+        result    = result.filter(function (t) {
+          return (String(t.id          || '').toLowerCase().indexOf(term2) !== -1) ||
+                 (String(t.email       || '').toLowerCase().indexOf(term2) !== -1) ||
+                 (String(t.subject     || '').toLowerCase().indexOf(term2) !== -1) ||
+                 (String(t.description || '').toLowerCase().indexOf(term2) !== -1);
         });
       }
 
